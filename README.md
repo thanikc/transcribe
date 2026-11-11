@@ -17,10 +17,15 @@ transcripts from Claude Desktop.
    cd C:\path\to\transcribe
    uv sync
    ```
-   **If the repo lives in WSL**, run uv from Windows against the `\\wsl.localhost\...` path.
-   Keep the Windows virtualenv separate so it doesn't overwrite the WSL `.venv`:
+   **If the repo lives in WSL**, run uv from Windows against the `\\wsl.localhost\...` path,
+   but keep the Windows virtualenv on a Windows drive. Windows cannot load native extension
+   DLLs (numpy, ctranslate2, onnxruntime) from a `\\wsl.localhost` path: recording fails with
+   `DLL load failed ... The parameter is incorrect`. A virtualenv there would also overwrite the WSL `.venv`.
+   Set the variable once, persistently, then open a **new** PowerShell:
    ```powershell
-   $env:UV_PROJECT_ENVIRONMENT = "$env:LOCALAPPDATA\transcribe\venv"
+   [Environment]::SetEnvironmentVariable("UV_PROJECT_ENVIRONMENT", "$env:LOCALAPPDATA\transcribe\venv", "User")
+   ```
+   ```powershell
    cd \\wsl.localhost\<distro>\home\<you>\dev\projects\transcribe
    uv sync
    ```

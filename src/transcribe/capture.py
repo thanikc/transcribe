@@ -34,9 +34,9 @@ def _open_device(track: str):
 
 
 def _record(track: str, path: Path, ready: threading.Event, stop: threading.Event, errors: list[Exception]) -> None:
-    import numpy as np
-
     try:
+        import numpy as np
+
         # Opened in the recording thread so WASAPI handles stay on the thread that uses them.
         with _open_device(track).recorder(samplerate=SAMPLE_RATE) as rec, wave.open(str(path), "wb") as wav:
             wav.setnchannels(1)
