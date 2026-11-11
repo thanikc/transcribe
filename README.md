@@ -49,25 +49,41 @@ For a repo in WSL, use `\\wsl.localhost\<distro>\...\transcribe\transcribe.cmd s
 
 ## Claude Desktop
 
-Add this to `%APPDATA%\Claude\claude_desktop_config.json`, then restart Claude Desktop:
+This works in the Chat tab only. The Code tab runs Claude Code, which ignores this file.
+
+Open the config file from Claude Desktop with Settings → Developer → Edit Config. That opens the file
+the app actually reads. Its location depends on how Claude Desktop was installed:
+
+- Installer from claude.ai: `%APPDATA%\Claude\claude_desktop_config.json`
+- Microsoft Store (packaged): `%LOCALAPPDATA%\Claude-Data\claude_<id>\claude_desktop_config.json`.
+  This build ignores `%APPDATA%\Claude`.
+
+Add a `mcpServers` entry and keep the keys already in the file:
 
 ```json
 {
   "mcpServers": {
     "transcribe": {
-      "command": "uv",
+      "command": "C:\\Users\\<you>\\.local\\bin\\uv.exe",
       "args": ["run", "--project", "C:\\path\\to\\transcribe", "transcribe", "mcp"]
     }
   }
 }
 ```
 
-If the repo lives in WSL, use the `\\\\wsl.localhost\\...` path as the project, and add
-`"env": {"UV_PROJECT_ENVIRONMENT": "C:\\Users\\<you>\\AppData\\Local\\transcribe\\venv"}`.
+Give `uv.exe` its full path, because Claude Desktop may not see your shell's `PATH`.
+
+If the repo lives in WSL, use `\\\\wsl.localhost\\<distro>\\home\\...\\transcribe` as the project.
+Also add `"env": {"UV_PROJECT_ENVIRONMENT": "C:\\Users\\<you>\\AppData\\Local\\transcribe\\venv"}`
+so Windows `uv` doesn't use the Linux `.venv`.
+
+Quit Claude Desktop from the tray icon and start it again. Closing the window is not enough. If the
+tools don't appear, read `mcp-server-transcribe.log` in `%LOCALAPPDATA%\Claude\logs` (Store build)
+or `%APPDATA%\Claude\logs` (installer build).
 
 Claude gets these tools: `start_recording`, `stop_recording`, `list_meetings`, `get_transcript`,
-`search_transcripts` and `rename_speaker`. `transcribe serve` must be running. If it isn't, Claude
-tells you to start it.
+`search_transcripts`, `rename_speaker` and `delete_meeting`. `transcribe serve` must be running. If
+it isn't, Claude tells you to start it.
 
 ## CLI
 
