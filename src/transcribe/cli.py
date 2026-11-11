@@ -1,4 +1,4 @@
-"""Command line: `transcribe serve|mcp|record|list|show|search|delete`."""
+"""Command line: `transcribe serve|mcp|record|list|show|search|delete|download-models`."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from transcribe.client import (
     ServiceClient,
@@ -20,6 +21,9 @@ from transcribe.client import (
     transcript_text,
 )
 from transcribe.domain import LANGUAGES, MODES
+
+if TYPE_CHECKING:
+    from transcribe.recorder import Recorder
 
 DEFAULT_PORT = 8765
 
@@ -39,28 +43,23 @@ def _venv_on_network_path() -> bool:
     return sys.platform == "win32" and sys.prefix.startswith("\\\\")
 
 
-def _serve(port: int, fake: bool) -> int:
-    if not fake and _venv_on_network_path():
-        print(
-            f"The virtualenv is on a network path ({sys.prefix}), where Windows cannot load numpy.\n"
-            "Start the service with transcribe.cmd from the repo, or set UV_PROJECT_ENVIRONMENT "
-            "to a folder on a Windows drive (see the README).",
-            file=sys.stderr,
-        )
-        return 1
-    import uvicorn
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    from transcribe.recorder import Recorder
-    from transcribe.store import MeetingStore
-    from transcribe.web import create_app
-
+def _data_dir(fake: bool = False) -> Path:
     configured = os.environ.get("TRANSCRIBE_DATA_DIR")
     if configured:
-        data_dir = Path(configured)
-    else:
-        data_dir = Path(tempfile.mkdtemp(prefix="transcribe-")) if fake else Path.home() / "Meetings"
+        return Path(configured)
+    return Path(tempfile.mkdtemp(prefix="transcribe-")) if fake else Path.home() / "Meetings"
+
+
+def _model_name() -> str:
+    return os.environ.get("TRANSCRIBE_MODEL", "large-v3")
+
+
+def build_recorder(fake: bool = False) -> tuple[Recorder, Path]:
+    """The recorder service's Recorder (shared by `serve` and the tray app) and its data dir."""
+    from transcribe.recorder import Recorder
+    from transcribe.store import MeetingStore
+
+    data_dir = _data_dir(fake)
     store = MeetingStore(data_dir)
     if fake:
         from transcribe import devfakes
@@ -79,14 +78,53 @@ def _serve(port: int, fake: bool) -> int:
         recorder = Recorder(
             store,
             SoundcardCapture(),
-            WhisperSpeechToText(os.environ.get("TRANSCRIBE_MODEL", "large-v3")),
+            WhisperSpeechToText(_model_name()),
             SherpaDiarizer(data_dir / ".models"),
         )
+    return recorder, data_dir
+
+
+def _serve(port: int, fake: bool) -> int:
+    if not fake and _venv_on_network_path():
+        print(
+            f"The virtualenv is on a network path ({sys.prefix}), where Windows cannot load numpy.\n"
+            "Start the service with transcribe.cmd from the repo, or set UV_PROJECT_ENVIRONMENT "
+            "to a folder on a Windows drive (see the README).",
+            file=sys.stderr,
+        )
+        return 1
+    import uvicorn
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    from transcribe.web import create_app
+
+    recorder, data_dir = build_recorder(fake)
     for meeting_id in recorder.recover_interrupted():
         print(f'marked interrupted recording "{meeting_id}" as failed (its audio can still be transcribed)')
     print(f"Data directory: {data_dir}")
     print(f"Recorder service: http://127.0.0.1:{port}")
     uvicorn.run(create_app(recorder), host="127.0.0.1", port=port, log_level="warning")
+    return 0
+
+
+def _download_models() -> int:
+    from transcribe.diarize import SherpaDiarizer
+    from transcribe.stt import MODEL_SIZES, WhisperSpeechToText
+
+    name = _model_name()
+    size = f" ({MODEL_SIZES[name]})" if name in MODEL_SIZES else ""
+    # The Hub's "set a HF_TOKEN for higher rate limits" notice alarms people in the installer's window.
+    logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
+    try:
+        print(f"Downloading the Whisper model {name}{size}…", flush=True)
+        WhisperSpeechToText(name).download()
+        print("Downloading the speaker models…", flush=True)
+        SherpaDiarizer(_data_dir() / ".models").ensure_models()
+    except Exception as error:  # network, disk full, HF hub: all end the same way for the installer
+        print(f"model download failed: {error}", file=sys.stderr)
+        return 1
+    print("Models ready")
     return 0
 
 
@@ -122,6 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
     search.add_argument("query")
     delete = commands.add_parser("delete", help="permanently delete a meeting: audio, transcript and all")
     delete.add_argument("id")
+    commands.add_parser("download-models", help="download the Whisper and speaker models now (the installer runs this)")
     return parser
 
 
@@ -149,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
             case "delete":
                 _client().delete(args.id)
                 print(f'deleted "{args.id}"')
+            case "download-models":
+                return _download_models()
     except (ServiceUnavailable, ServiceError) as error:
         print(error, file=sys.stderr)
         return 1

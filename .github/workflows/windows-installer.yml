@@ -1,0 +1,73 @@
+name: Windows installer
+
+on:
+  push:
+    tags: ["v*"]  # builds and attaches to a release; path filters don't apply to tags
+    branches: ["**"]  # builds an artifact when the installer or the app changes
+    paths:
+      - "installer/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/windows-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # attach the installer to the release
+
+env:
+  UV_VERSION: "0.13.7"  # also bundled in the installer
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Test
+        run: |
+          uv sync --frozen
+          uv run pytest -q
+
+      - name: Fetch uv.exe, Python and draw the icon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile build\uv.zip
+          Expand-Archive build\uv.zip build\uv -Force
+          Copy-Item build\uv\uv.exe build\uv.exe
+          # Ship Python as plain files: a uv-managed install adds a junction the installer can't follow (os error 448).
+          # The pinned uv resolves "3.12" to the same patch release every time.
+          $env:UV_PYTHON_INSTALL_DIR = "$PWD\build\pythons"
+          uv python install 3.12 --no-bin --no-registry
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $real = Get-ChildItem build\pythons -Directory | Where-Object { $_.Name -match '^cpython-3\.12\.\d+-windows-x86_64-none$' }
+          if (@($real).Count -ne 1) { throw "expected one CPython 3.12 install, got: $($real.Name)" }
+          Copy-Item $real.FullName build\python -Recurse
+          if (-not (Test-Path build\python\python.exe)) { throw "no python.exe in $($real.FullName)" }
+          uv run python -c "from transcribe.desktop import icon_image; icon_image(False).save('build/transcribe.ico', sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64)])"
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.0.0-dev.$env:GITHUB_RUN_NUMBER" }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+          & $iscc "/DAppVersion=$version" installer\transcribe.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Transcribe-Setup
+          path: dist/*.exe
+
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME (Get-Item dist\*.exe).FullName --generate-notes

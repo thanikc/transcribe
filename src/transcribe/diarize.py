@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tarfile
 import threading
 import urllib.request
@@ -20,7 +21,7 @@ EMBEDDING_URL = f"{_BASE}/speaker-recongition-models/{EMBEDDING_FILE}"
 def _download(url: str, dest: Path) -> None:
     part = dest.with_name(dest.name + ".part")
     urllib.request.urlretrieve(url, part)
-    part.rename(dest)
+    part.replace(dest)  # replace, not rename: Windows refuses to rename over a leftover file
 
 
 def _read_mono(wav: Path, rate: int):
@@ -42,22 +43,33 @@ class SherpaDiarizer:
         self._engine = None
         self._lock = threading.Lock()
 
+    def ensure_models(self) -> tuple[Path, Path]:
+        """Download the segmentation and embedding models unless present. Returns their paths."""
+        self._dir.mkdir(parents=True, exist_ok=True)
+        segmentation = self._dir / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
+        if not segmentation.exists():
+            archive = self._dir / "segmentation.tar.bz2"
+            _download(SEGMENTATION_URL, archive)
+            # Unpack beside the target and move it in whole, so an interrupted unpack leaves no partial model.
+            unpacking = self._dir / ".unpacking"
+            shutil.rmtree(unpacking, ignore_errors=True)
+            with tarfile.open(archive) as tar:
+                tar.extractall(unpacking, filter="data")
+            shutil.rmtree(segmentation.parent, ignore_errors=True)
+            (unpacking / segmentation.parent.name).rename(segmentation.parent)
+            unpacking.rmdir()
+            archive.unlink()
+        embedding = self._dir / EMBEDDING_FILE
+        if not embedding.exists():
+            _download(EMBEDDING_URL, embedding)
+        return segmentation, embedding
+
     def _load(self):
         with self._lock:
             if self._engine is None:
                 import sherpa_onnx as so
 
-                self._dir.mkdir(parents=True, exist_ok=True)
-                segmentation = self._dir / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
-                if not segmentation.exists():
-                    archive = self._dir / "segmentation.tar.bz2"
-                    _download(SEGMENTATION_URL, archive)
-                    with tarfile.open(archive) as tar:
-                        tar.extractall(self._dir, filter="data")
-                    archive.unlink()
-                embedding = self._dir / EMBEDDING_FILE
-                if not embedding.exists():
-                    _download(EMBEDDING_URL, embedding)
+                segmentation, embedding = self.ensure_models()
                 config = so.OfflineSpeakerDiarizationConfig(
                     segmentation=so.OfflineSpeakerSegmentationModelConfig(
                         pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(segmentation))

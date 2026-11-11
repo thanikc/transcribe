@@ -9,7 +9,36 @@ transcripts from Claude Desktop.
 - **Speakers** are told apart by voice (sherpa-onnx), and you can give them names.
 - **Storage:** everything is kept under `~/Meetings/<meeting id>/` (WAV audio, `meeting.json`, `transcript.json`).
 
-## Windows setup
+## Install (Windows)
+
+1. Download `Transcribe-Setup-<version>.exe` from the [Releases page](https://github.com/thanikc/transcribe/releases).
+2. Run it. If Windows says "Windows protected your PC", click **More info**, then **Run anyway** (the installer isn't code-signed).
+3. Click through it. On the **Speech model** page, choose:
+   - **large-v3** (default): the most accurate, and best for Thai. It's a 3 GB download, and without an NVIDIA
+     graphics card it takes about 1–2× the meeting length to transcribe.
+   - **large-v3-turbo**: half the download (1.6 GB) and several times faster. It makes a few more mistakes,
+     noticeably more in Thai than in English.
+
+   To switch later, run the installer again and pick the other one.
+
+   Setup then downloads the speech libraries (~500 MB), and the model in a window that shows its progress.
+   Keep the computer online, and expect it to take a while on a slow connection.
+4. When it finishes, Transcribe opens the recorder page in your browser. A microphone icon appears in the
+   notification area (by the clock; it may be under the **^** arrow). It turns red while a recording runs.
+
+Right-click the icon for:
+
+- **Open recorder**: the recorder page (a left click does the same)
+- **Start at login**: on by default
+- **Connect to Claude Desktop**: see [Claude Desktop](#claude-desktop)
+- **Open log**, **Open meetings folder**
+- **Quit**: stops the recorder. A recording that's running is stopped first. A meeting still being transcribed
+  shows as failed ("interrupted") next time, and **Transcribe again** finishes it.
+
+To upgrade, run a newer installer. To uninstall, use Windows Settings → Apps. Your recordings in `~/Meetings` are
+kept, and so is the Whisper model (`%USERPROFILE%\.cache\huggingface`, 1.6–3 GB). Delete that folder to free the space.
+
+## Developer setup (Windows)
 
 1. Install [uv](https://docs.astral.sh/uv/): `winget install astral-sh.uv`
 2. Get the code and install the dependencies, which also downloads Python 3.12:
@@ -51,6 +80,12 @@ For a repo in WSL, use `\\wsl.localhost\<distro>\...\transcribe\transcribe.cmd s
 ## Claude Desktop
 
 This works in the Chat tab only. The Code tab runs Claude Code, which ignores this file.
+
+**If you used the installer:** right-click the tray icon, choose **Connect to Claude Desktop**, then quit Claude
+Desktop from its own tray icon and start it again. This adds a `transcribe` entry to Claude Desktop's config file and
+keeps everything else in it. The old file is saved next to it as `claude_desktop_config.json.bak`.
+
+**Developer setup:** add the entry yourself, as follows.
 
 Open the config file from Claude Desktop with Settings → Developer → Edit Config. That opens the file
 the app actually reads. Its location depends on how Claude Desktop was installed:
@@ -109,6 +144,8 @@ transcribe list
 transcribe show <meeting id>
 transcribe search <query>
 transcribe mcp                     # stdio MCP server (launched by Claude Desktop)
+transcribe download-models         # fetch the Whisper and speaker models now instead of on first use
+transcribe-tray [--background]     # tray app: the service + notification-area icon (what the installer starts)
 ```
 
 ## Configuration
@@ -116,7 +153,7 @@ transcribe mcp                     # stdio MCP server (launched by Claude Deskto
 | Env var | Default | Meaning |
 |---|---|---|
 | `TRANSCRIBE_DATA_DIR` | `~/Meetings` | Where meetings are stored |
-| `TRANSCRIBE_MODEL` | `large-v3` | Whisper model name or a CTranslate2 model directory (`medium` is faster) |
+| `TRANSCRIBE_MODEL` | `large-v3` | Whisper model name or a CTranslate2 model directory (`large-v3-turbo` or `medium` are faster). The installer sets this from its Speech model page. |
 | `TRANSCRIBE_PORT` | `8765` | Service port |
 
 ## Limits

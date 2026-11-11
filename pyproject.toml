@@ -13,10 +13,16 @@ dependencies = [
     "numpy",
     "sherpa-onnx",
     "httpx2>=2.16.0",
+    "pillow>=13.0.0",
+    "pystray>=0.19.5 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]
 transcribe = "transcribe.cli:main"
+
+# Windowless launcher for the tray app (no console window).
+[project.gui-scripts]
+transcribe-tray = "transcribe.tray:main"
 
 [dependency-groups]
 dev = ["pytest"]
