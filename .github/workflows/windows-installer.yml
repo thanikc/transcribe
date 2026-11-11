@@ -2,7 +2,14 @@ name: Windows installer
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*"]  # builds and attaches to a release; path filters don't apply to tags
+    branches: ["**"]  # builds an artifact when the installer or the app changes
+    paths:
+      - "installer/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/windows-installer.yml"
   workflow_dispatch:
 
 permissions:
