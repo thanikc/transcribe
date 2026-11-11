@@ -3,6 +3,8 @@ name = "transcribe"
 version = "0.1.0"
 description = "Local meeting recorder and transcriber with a web UI and an MCP server for Claude Desktop"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "mcp",
