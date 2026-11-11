@@ -21,7 +21,7 @@ transcripts from Claude Desktop.
 
    To switch later, run the installer again and pick the other one.
 
-   Setup then downloads Python and the speech libraries (~500 MB), and the model in a window that shows its progress.
+   Setup then downloads the speech libraries (~500 MB), and the model in a window that shows its progress.
    Keep the computer online, and expect it to take a while on a slow connection.
 4. When it finishes, Transcribe opens the recorder page in your browser. A microphone icon appears in the
    notification area (by the clock; it may be under the **^** arrow). It turns red while a recording runs.

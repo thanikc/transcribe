@@ -1,6 +1,7 @@
 ; Inno Setup 6 script for Transcribe. Built by .github/workflows/windows-installer.yml:
 ;   iscc /DAppVersion=1.2.3 installer\transcribe.iss
-; Expects build\uv.exe and build\transcribe.ico next to the repo root (the workflow makes them).
+; Expects build\uv.exe, build\transcribe.ico and build\python\ (a standalone CPython 3.12) next to the repo root
+; (the workflow makes them).
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
@@ -17,7 +18,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Python + libraries (~1 GB unpacked) and the Whisper model (~3 GB) are downloaded during install.
+; The libraries (~1 GB unpacked) and the Whisper model (~3 GB) are downloaded during install.
 ExtraDiskSpaceRequired=4500000000
 OutputDir=..\dist
 OutputBaseFilename=Transcribe-Setup-{#AppVersion}
@@ -31,17 +32,21 @@ WizardStyle=modern
 ChangesEnvironment=yes
 
 [Messages]
-WelcomeLabel2=This installs Transcribe, which records your meetings and transcribes them on this computer.%n%nDuring setup it downloads 2-3.5 GB (Python, speech libraries and the Whisper speech model you choose), so keep the computer connected to the internet. On a slow connection this takes a while.
+WelcomeLabel2=This installs Transcribe, which records your meetings and transcribes them on this computer.%n%nDuring setup it downloads 2-3.5 GB (speech libraries and the Whisper speech model you choose), so keep the computer connected to the internet. On a slow connection this takes a while.
 
 [Tasks]
 Name: startup; Description: "Start Transcribe when I sign in"
 
 [InstallDelete]
-; Old source files from a previous version; the venv and Python are refreshed by uv sync.
+; Old source files and the bundled Python from a previous version; the venv is refreshed by uv sync.
 Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\runtime"
+; Left by 0.0.0-dev.1, which let uv download Python (and failed on its junction).
+Type: filesandordirs; Name: "{app}\python"
 
 [Files]
 Source: "..\build\uv.exe"; DestDir: "{app}"
+Source: "..\build\python\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs
 Source: "..\build\transcribe.ico"; DestDir: "{app}"
 Source: "setup.cmd"; DestDir: "{app}"
 Source: "download-models.cmd"; DestDir: "{app}"
@@ -156,7 +161,7 @@ begin
 
   Ready := False;
   repeat
-    if RunScript('setup.cmd', 'Downloading Python and the speech libraries (about 500 MB). This takes a few minutes...', SW_HIDE) = 0 then
+    if RunScript('setup.cmd', 'Downloading the speech libraries (about 500 MB). This takes a few minutes...', SW_HIDE) = 0 then
       Ready := True
     else if MsgBox('Transcribe couldn''t download its components. Check your internet connection, then press Retry.' + #13#10#13#10 +
                    'Details are in ' + ExpandConstant('{app}\install.log'), mbError, MB_RETRYCANCEL) <> IDRETRY then

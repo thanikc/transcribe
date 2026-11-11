@@ -287,3 +287,12 @@ def test_second_launch_only_opens_the_page(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(tray.webbrowser, "open", opened.append)
     tray.main()
     assert opened == ["http://127.0.0.1:8765"]
+
+
+def test_installer_ships_python_instead_of_letting_uv_download_it() -> None:
+    # A uv-managed Python adds a junction that Inno Setup's RedirectionGuard blocks (os error 448).
+    root = Path(__file__).parent.parent / "installer"
+    setup = (root / "setup.cmd").read_text(encoding="utf-8")
+    assert 'UV_PYTHON_DOWNLOADS=never' in setup and r'--python "%HERE%runtime\python.exe"' in setup
+    assert r'DestDir: "{app}\runtime"' in (root / "transcribe.iss").read_text(encoding="utf-8")
+    assert "HF_HUB_DISABLE_SYMLINKS=1" in (root / "download-models.cmd").read_text(encoding="utf-8")

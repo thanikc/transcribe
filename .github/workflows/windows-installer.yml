@@ -33,13 +33,22 @@ jobs:
           uv sync --frozen
           uv run pytest -q
 
-      - name: Fetch uv.exe and draw the icon
+      - name: Fetch uv.exe, Python and draw the icon
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
           Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile build\uv.zip
           Expand-Archive build\uv.zip build\uv -Force
           Copy-Item build\uv\uv.exe build\uv.exe
+          # Ship Python as plain files: a uv-managed install adds a junction the installer can't follow (os error 448).
+          # The pinned uv resolves "3.12" to the same patch release every time.
+          $env:UV_PYTHON_INSTALL_DIR = "$PWD\build\pythons"
+          uv python install 3.12 --no-bin --no-registry
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $real = Get-ChildItem build\pythons -Directory | Where-Object { $_.Name -match '^cpython-3\.12\.\d+-windows-x86_64-none$' }
+          if (@($real).Count -ne 1) { throw "expected one CPython 3.12 install, got: $($real.Name)" }
+          Copy-Item $real.FullName build\python -Recurse
+          if (-not (Test-Path build\python\python.exe)) { throw "no python.exe in $($real.FullName)" }
           uv run python -c "from transcribe.desktop import icon_image; icon_image(False).save('build/transcribe.ico', sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64)])"
 
       - name: Build the installer

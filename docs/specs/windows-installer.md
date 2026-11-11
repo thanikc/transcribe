@@ -10,9 +10,9 @@ unchanged; see `meeting-recorder.md`.
 
 | Term | Meaning |
 |---|---|
-| **Installer** | `Transcribe-Setup-<version>.exe`, an Inno Setup installer for the current user only (no admin rights). It carries `uv.exe` and the app's source plus `uv.lock`. |
-| **Install dir** | `%LOCALAPPDATA%\Programs\Transcribe`. Holds the app, `uv.exe`, the downloaded Python (`python\`) and the virtualenv (`venv\`). |
-| **Component download** | During install, `uv sync --frozen --no-dev --no-editable` fetches Python 3.12 and the pinned libraries (~500 MB) into the install dir. |
+| **Installer** | `Transcribe-Setup-<version>.exe`, an Inno Setup installer for the current user only (no admin rights). It carries `uv.exe`, a standalone CPython 3.12 (plain files, ~30 MB) and the app's source plus `uv.lock`. |
+| **Install dir** | `%LOCALAPPDATA%\Programs\Transcribe`. Holds the app, `uv.exe`, the bundled Python (`runtime\`) and the virtualenv (`venv\`). |
+| **Component download** | During install, `uv sync --frozen --no-dev --no-editable --python runtime\python.exe` fetches the pinned libraries (~500 MB) into the install dir. Python is bundled, not downloaded, because a uv-managed Python adds a junction that Inno Setup 6.7's RedirectionGuard (left on) blocks with os error 448. For the same reason the model download uses copies, not symlinks, in the Hugging Face cache. |
 | **Speech model choice** | An installer page offering `large-v3` (default: most accurate, best for Thai, ~3 GB, slower) or `large-v3-turbo` (~1.6 GB, several times faster, a little less accurate, with a larger gap for Thai than for English). The choice is stored as the per-user environment variable `TRANSCRIBE_MODEL`, the existing setting, and it is remembered for the next upgrade. |
 | **Model download** | During install, right after the component download, `transcribe download-models` fetches the chosen Whisper model (~3 GB or ~1.6 GB) into the Hugging Face cache (`~/.cache/huggingface`, where faster-whisper looks for it) and the sherpa-onnx speaker models into `~/Meetings/.models`. It runs in a visible console window so its progress bars show. Files already downloaded are skipped, so it is safe to run again. |
 | **Tray app** | `transcribe-tray.exe` (a windowless gui-script). It runs the **recorder service** in-process and shows a **tray icon**. It replaces `transcribe serve` for end users. |
