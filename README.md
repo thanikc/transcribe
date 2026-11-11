@@ -17,7 +17,8 @@ transcripts from Claude Desktop.
    cd C:\path\to\transcribe
    uv sync
    ```
-   **If the repo lives in WSL**, don't run `uv` directly from Windows: it would put a Windows
+   **If the repo lives in WSL**, don't run `uv` directly from Windows, even through a mapped
+   drive such as `W:`: it would put a Windows
    virtualenv in the WSL `.venv`, and Windows cannot load native extension DLLs (numpy,
    ctranslate2, onnxruntime) from a `\\wsl.localhost` path. Recording then fails with
    `DLL load failed ... The parameter is incorrect`. Use the `transcribe.cmd` launcher in the repo
@@ -73,9 +74,23 @@ Add a `mcpServers` entry and keep the keys already in the file:
 
 Give `uv.exe` its full path, because Claude Desktop may not see your shell's `PATH`.
 
-If the repo lives in WSL, use `\\\\wsl.localhost\\<distro>\\home\\...\\transcribe` as the project.
-Also add `"env": {"UV_PROJECT_ENVIRONMENT": "C:\\Users\\<you>\\AppData\\Local\\transcribe\\venv"}`
-so Windows `uv` doesn't use the Linux `.venv`.
+If the repo lives in WSL, point Claude Desktop at the launcher instead, so Windows `uv` doesn't
+replace the Linux `.venv`:
+
+```json
+{
+  "mcpServers": {
+    "transcribe": {
+      "command": "\\\\wsl.localhost\\<distro>\\home\\<you>\\dev\\projects\\transcribe\\transcribe.cmd",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+To test it in PowerShell first, run `...\transcribe.cmd mcp`. It waits silently for input, so press
+Ctrl+C to quit. Don't run `uv run --project W:\...` yourself: it creates a Windows venv inside the
+repo.
 
 Quit Claude Desktop from the tray icon and start it again. Closing the window is not enough. If the
 tools don't appear, read `mcp-server-transcribe.log` in `%LOCALAPPDATA%\Claude\logs` (Store build)
