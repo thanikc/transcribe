@@ -1,0 +1,27 @@
+[project]
+name = "transcribe"
+version = "0.1.0"
+description = "Local meeting recorder and transcriber with a web UI and an MCP server for Claude Desktop"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mcp",
+    "faster-whisper",
+    "soundcard",
+    "numpy",
+    "sherpa-onnx",
+    "httpx2>=2.16.0",
+]
+
+[project.scripts]
+transcribe = "transcribe.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

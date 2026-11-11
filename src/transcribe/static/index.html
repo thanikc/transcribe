@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meetings</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1c2430; --muted: #5d6877; --border: #d5dae1;
+  --accent: #2456c9; --accent-text: #ffffff; --danger: #b3261e; --danger-bg: #fdecea;
+  --ok: #1d6b3a; --warn: #8a5a00; --hover: #eef1f6;
+  --sp0: #1f5fbf; --sp1: #b4531a; --sp2: #1c7a4b; --sp3: #8b3fa8; --sp4: #a1304f; --sp5: #5b6b00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181f; --panel: #1d232d; --text: #e6e9ee; --muted: #9aa5b4; --border: #333c4a;
+    --accent: #6a9bff; --accent-text: #0c1424; --danger: #ff8a80; --danger-bg: #3a1c1a;
+    --ok: #6fd391; --warn: #f0b94d; --hover: #272f3b;
+    --sp0: #7fb0ff; --sp1: #f0a066; --sp2: #6fd391; --sp3: #d49cf0; --sp4: #f08aa6; --sp5: #c9d86a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.5 system-ui, "Segoe UI", "Leelawadee UI", "Noto Sans Thai", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 16px;
+  grid-template-columns: minmax(280px, 340px) 1fr; align-items: start; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+h1 { font-size: 1.3rem; margin: 0 0 4px; grid-column: 1 / -1; }
+h2 { font-size: 1.05rem; margin: 0 0 10px; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 3px; }
+input, select, button { font: inherit; color: inherit; }
+input[type=text], input[type=search], select { width: 100%; padding: 7px 9px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; }
+button { cursor: pointer; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); }
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.primary:hover { filter: brightness(1.08); }
+button.stop { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 600; }
+button:disabled { opacity: .55; cursor: default; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.row > div { flex: 1 1 150px; }
+#status { margin: 14px 0 0; font-weight: 600; }
+#status.rec { color: var(--danger); }
+.err { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); border-radius: 6px;
+  padding: 6px 10px; margin-top: 10px; }
+.err:empty { display: none; }
+.muted { color: var(--muted); }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li + li { margin-top: 4px; }
+.item { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; }
+.item[aria-current=true] { border-color: var(--accent); background: var(--hover); }
+.item .t { font-weight: 600; overflow-wrap: anywhere; }
+.item .m { font-size: .85rem; color: var(--muted); }
+.badge { display: inline-block; font-size: .75rem; padding: 0 8px; border-radius: 99px; border: 1px solid currentColor; margin-left: 6px; font-weight: 600; }
+.badge.recording { color: var(--danger); }
+.badge.transcribing { color: var(--warn); }
+.badge.transcribed { color: var(--ok); }
+.badge.failed { color: var(--danger); }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 8px 0; }
+.meta dt { color: var(--muted); } .meta dd { margin: 0; }
+.tracks { display: grid; gap: 8px; margin: 12px 0; }
+.tracks audio { width: 100%; }
+.warn { color: var(--warn); margin: 4px 0; }
+.transcript { margin: 12px 0 0; padding: 0; list-style: none; }
+.transcript li { padding: 4px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.ts { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; }
+.spk { padding: 0 6px; margin-right: 8px; font-weight: 700; background: none; border: 1px solid currentColor; border-radius: 5px; }
+.spk:hover { background: var(--hover); }
+.again { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border); }
+.hit { display: block; width: 100%; text-align: left; margin-top: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Meetings</h1>
+
+  <div>
+    <section aria-labelledby="rec-h">
+      <h2 id="rec-h">Recording</h2>
+      <label for="title">Title</label>
+      <input type="text" id="title" autocomplete="off">
+      <label for="mode">Mode</label>
+      <select id="mode">
+        <option value="mic">In person (mic)</option>
+        <option value="mic+system">Online call (mic + system audio)</option>
+      </select>
+      <label for="language">Language</label>
+      <select id="language">
+        <option value="auto">Auto</option>
+        <option value="th">ไทย</option>
+        <option value="en">English</option>
+      </select>
+      <p style="margin:14px 0 0"><button type="button" id="toggle" class="primary">Start recording</button></p>
+      <p id="status" role="status" aria-live="polite">Not recording</p>
+      <div id="rec-error" class="err" role="alert"></div>
+    </section>
+
+    <section aria-labelledby="list-h" style="margin-top:16px">
+      <h2 id="list-h">Past meetings</h2>
+      <ul class="list" id="meetings"></ul>
+      <p class="muted" id="no-meetings" hidden>No meetings yet.</p>
+    </section>
+
+    <section aria-labelledby="search-h" style="margin-top:16px">
+      <h2 id="search-h">Search transcripts</h2>
+      <form id="search-form" role="search">
+        <label for="q" class="sr-only">Search</label>
+        <div class="row">
+          <div><input type="search" id="q" placeholder="Search words…"></div>
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      <div id="hits"></div>
+    </section>
+  </div>
+
+  <section aria-labelledby="view-h" id="view-section">
+    <h2 id="view-h" class="sr-only">Meeting</h2>
+    <div id="view"><p class="muted">Select a meeting to see its transcript.</p></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const STATUS_LABEL = { recording: "recording", transcribing: "transcribing", transcribed: "transcribed", failed: "failed" };
+const TRACK_LABEL = { mic: "Microphone", system: "System audio" };
+const LANG_LABEL = { th: "ไทย", en: "English", auto: "Auto" };
+const MODE_LABEL = { mic: "In person (mic)", "mic+system": "Online call (mic + system audio)" };
+
+const state = {
+  recording: false, recId: null, recTitle: "", elapsed: 0, elapsedAt: 0,
+  meetings: [], currentId: null, detail: null, busy: false,
+  viewTimer: null, viewToken: 0,
+};
+
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  if (props) for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) e.append(kid);
+  return e;
+}
+const mmss = (sec) => {
+  sec = Math.max(0, Math.floor(sec || 0));
+  return String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
+};
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (method === "POST") { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body || {}); }
+  let res;
+  try { res = await fetch(path, opts); } catch (e) { throw new Error("Cannot reach the recorder service."); }
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON */ }
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+
+/* ---------- recording panel ---------- */
+function renderStatus() {
+  const s = $("status"), btn = $("toggle");
+  if (state.recording) {
+    const el_ = state.elapsed + (performance.now() - state.elapsedAt) / 1000;
+    s.className = "rec";
+    s.textContent = `● Recording ${mmss(el_)}` + (state.recTitle ? ` — ${state.recTitle}` : "");
+    btn.textContent = "Stop recording"; btn.className = "stop";
+  } else {
+    s.className = ""; s.textContent = "Not recording";
+    btn.textContent = "Start recording"; btn.className = "primary";
+  }
+  btn.disabled = state.busy;
+}
+function showRecError(msg) { $("rec-error").textContent = msg || ""; }
+
+async function pollStatus() {
+  try {
+    const st = await api("GET", "/api/status");
+    const wasRec = state.recording;
+    state.recording = !!st.recording;
+    if (st.recording) {
+      state.recId = st.meeting_id; state.recTitle = st.title || st.meeting_id;
+      state.elapsed = st.elapsed || 0; state.elapsedAt = performance.now();
+    }
+    if (wasRec !== state.recording) loadMeetings();
+    renderStatus();
+  } catch (e) { /* transient; try again next tick */ }
+}
+
+$("toggle").addEventListener("click", async () => {
+  if (state.busy) return;
+  state.busy = true; showRecError(""); renderStatus();
+  try {
+    if (state.recording) {
+      const r = await api("POST", "/api/recordings/stop", {});
+      state.recording = false;
+      await loadMeetings();
+      openMeeting(r.meeting.id);
+    } else {
+      const r = await api("POST", "/api/recordings/start", {
+        title: $("title").value, mode: $("mode").value, language: $("language").value,
+      });
+      state.recording = true; state.recId = r.meeting.id; state.recTitle = r.meeting.title || r.meeting.id;
+      state.elapsed = 0; state.elapsedAt = performance.now();
+      loadMeetings();
+    }
+  } catch (e) { showRecError(e.message); }
+  state.busy = false; renderStatus(); pollStatus();
+});
+
+/* ---------- meeting list ---------- */
+async function loadMeetings() {
+  try {
+    const data = await api("GET", "/api/meetings");
+    state.meetings = data.meetings.slice().sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
+    renderList();
+  } catch (e) { /* ignore */ }
+}
+function badge(status) { return el("span", { class: "badge " + status, text: STATUS_LABEL[status] || status }); }
+function renderList() {
+  const ul = $("meetings"); ul.replaceChildren();
+  $("no-meetings").hidden = state.meetings.length > 0;
+  for (const m of state.meetings) {
+    const when = new Date(m.started_at).toLocaleString();
+    const b = el("button", { type: "button", class: "item", "data-id": m.id, onclick: () => openMeeting(m.id) },
+      el("div", { class: "t" }, document.createTextNode(m.title || m.id), badge(m.status)),
+      el("div", { class: "m", text: `${when} · ${mmss(m.duration)}` }));
+    if (m.id === state.currentId) b.setAttribute("aria-current", "true");
+    ul.append(el("li", null, b));
+  }
+}
+setInterval(() => {
+  if (state.meetings.some((m) => m.status === "recording" || m.status === "transcribing")) loadMeetings();
+}, 2000);
+
+/* ---------- meeting view ---------- */
+function openMeeting(id) {
+  const target = "#/meeting/" + encodeURIComponent(id);
+  if (location.hash !== target) location.hash = target; else showMeeting(id);
+}
+window.addEventListener("hashchange", routeFromHash);
+function routeFromHash() {
+  const m = location.hash.match(/^#\/meeting\/(.+)$/);
+  if (m) { try { showMeeting(decodeURIComponent(m[1])); } catch (e) { /* bad escape */ } }
+  else { clearTimeout(state.viewTimer); state.viewToken++; state.currentId = null; state.detail = null;
+    $("view").replaceChildren(el("p", { class: "muted", text: "Select a meeting to see its transcript." })); renderList(); }
+}
+
+async function showMeeting(id) {
+  clearTimeout(state.viewTimer);
+  const token = ++state.viewToken;
+  if (state.currentId !== id) { state.detail = null; }
+  state.currentId = id; renderList();
+  try {
+    const d = await api("GET", "/api/meetings/" + encodeURIComponent(id));
+    if (token !== state.viewToken) return;
+    applyDetail(d, token);
+  } catch (e) {
+    if (token !== state.viewToken) return;
+    $("view").replaceChildren(el("div", { class: "err", role: "alert", text: e.message }));
+  }
+}
+function applyDetail(d, token) {
+  state.detail = d;
+  renderMeeting();
+  const s = d.meeting.status;
+  if (s === "transcribing" || s === "recording") {
+    state.viewTimer = setTimeout(async () => {
+      if (token !== state.viewToken) return;
+      try {
+        const nd = await api("GET", "/api/meetings/" + encodeURIComponent(d.meeting.id));
+        if (token !== state.viewToken) return;
+        applyDetail(nd, token);
+      } catch (e) { if (token === state.viewToken) applyDetail(d, token); }
+    }, 2000);
+  }
+  if (!state.meetings.some((m) => m.id === d.meeting.id && m.status === s)) loadMeetings();
+}
+
+const palette = {};
+function colourOf(label) {
+  if (!(label in palette)) palette[label] = Object.keys(palette).length % 6;
+  return `var(--sp${palette[label]})`;
+}
+
+function select(id, options, value) {
+  const s = el("select", { id });
+  for (const [v, t] of options) s.append(el("option", { value: v, text: t }));
+  s.value = value; return s;
+}
+
+function renderMeeting() {
+  const { meeting: m, segments } = state.detail;
+  const view = $("view"); view.replaceChildren();
+  const id = m.id;
+  view.append(el("h3", { style: "margin:0;font-size:1.25rem;overflow-wrap:anywhere" }, document.createTextNode(m.title || m.id), badge(m.status)));
+
+  let lang = LANG_LABEL[m.language] || m.language;
+  if (m.language === "auto") {
+    const det = Object.entries(m.detected_languages || {});
+    lang = "Auto" + (det.length ? " — detected: " + det.map(([t, l]) => `${TRACK_LABEL[t] || t} ${LANG_LABEL[l] || l}`).join(", ") : "");
+  }
+  const dl = el("dl", { class: "meta" });
+  for (const [k, v] of [["Started", new Date(m.started_at).toLocaleString()], ["Duration", m.duration != null ? mmss(m.duration) : "—"],
+    ["Mode", MODE_LABEL[m.mode] || m.mode], ["Language", lang]]) {
+    dl.append(el("dt", { text: k }), el("dd", { text: v }));
+  }
+  view.append(dl);
+  for (const w of m.warnings || []) view.append(el("p", { class: "warn", text: "Warning: " + w }));
+  if (m.status === "failed") view.append(el("div", { class: "err", role: "alert", text: "Transcription failed: " + (m.error || "unknown error") }));
+
+  if (m.status !== "recording") {
+    const tracks = el("div", { class: "tracks" });
+    for (const t of m.tracks || []) {
+      const lid = `audio-${t}`;
+      tracks.append(el("div", null, el("label", { for: lid, text: TRACK_LABEL[t] || t }),
+        el("audio", { id: lid, controls: "", preload: "none", src: `/api/meetings/${encodeURIComponent(id)}/audio/${encodeURIComponent(t)}` })));
+    }
+    view.append(tracks);
+  }
+
+  if (m.status === "recording") {
+    view.append(el("p", { class: "muted", text: "Recording in progress. The transcript appears after you stop." }));
+  } else if (m.status === "transcribing") {
+    view.append(el("p", { role: "status", text: "Transcribing…" }));
+  } else if (m.status === "transcribed" && segments) {
+    if (!segments.length) view.append(el("p", { class: "muted", text: "No speech was found." }));
+    const ol = el("ol", { class: "transcript", "aria-label": "Transcript" });
+    for (const s of segments) {
+      const li = el("li", null, el("span", { class: "ts", text: `[${mmss(s.start)}]` }));
+      if (s.speaker) {
+        const shown = (m.speaker_names || {})[s.speaker] || s.speaker;
+        const b = el("button", { type: "button", class: "spk", title: "Rename this speaker", text: shown, onclick: () => renameSpeaker(s.speaker, shown) });
+        b.style.color = colourOf(s.speaker);
+        li.append(b);
+      }
+      li.append(el("span", { text: s.text }));
+      ol.append(li);
+    }
+    view.append(ol);
+  }
+
+  if (m.status !== "recording") {
+    const again = el("div", { class: "again" }, el("h4", { style: "margin:0 0 4px", text: "Transcribe again" }));
+    const row = el("div", { class: "row" });
+    const lsel = select("again-language", [["auto", "Auto"], ["th", "ไทย"], ["en", "English"]], m.language);
+    const btn = el("button", { type: "button", text: "Transcribe again" });
+    btn.disabled = m.status === "transcribing";
+    const errBox = el("div", { class: "err", role: "alert" });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; errBox.textContent = "";
+      try {
+        await api("POST", `/api/meetings/${encodeURIComponent(id)}/transcribe`, { language: lsel.value });
+        await showMeeting(id); loadMeetings();
+      } catch (e) { errBox.textContent = e.message; btn.disabled = false; }
+    });
+    row.append(el("div", null, el("label", { for: "again-language", text: "Language" }), lsel),
+      el("div", { style: "flex:0 0 auto" }, btn));
+    again.append(row, errBox);
+    view.append(again);
+  }
+}
+
+async function renameSpeaker(raw, current) {
+  const name = prompt(`Name for ${raw} (leave empty to reset):`, current === raw ? "" : current);
+  if (name === null) return;
+  const id = state.currentId;
+  try {
+    const d = await api("POST", `/api/meetings/${encodeURIComponent(id)}/speakers`, { speaker: raw, name });
+    if (id === state.currentId) { state.detail = d; renderMeeting(); }
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- search ---------- */
+$("search-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const q = $("q").value.trim(); const box = $("hits"); box.replaceChildren();
+  if (!q) return;
+  try {
+    const { hits } = await api("GET", "/api/search?q=" + encodeURIComponent(q));
+    if (!hits.length) { box.append(el("p", { class: "muted", text: "No matches." })); return; }
+    for (const h of hits) {
+      box.append(el("button", { type: "button", class: "item hit", onclick: () => openMeeting(h.meeting_id) },
+        el("div", { class: "m", text: `${h.timestamp} ${h.title || h.meeting_id}${h.speaker ? " · " + h.speaker : ""}` }),
+        el("div", { text: h.text })));
+    }
+  } catch (e) { box.append(el("div", { class: "err", role: "alert", text: e.message })); }
+});
+
+/* ---------- start ---------- */
+setInterval(pollStatus, 1000);
+setInterval(() => { if (state.recording) renderStatus(); }, 250);
+pollStatus(); loadMeetings(); routeFromHash();
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+Feature: Record, transcribe and read local meetings
+
+  Background:
+    Given an empty meetings data directory
+
+  # --- Recording ---
+
+  Scenario: Record an in-person meeting from the microphone
+    When I start recording "Weekly sync" in "mic" mode at 2026-11-11 14:30
+    And I stop the recording
+    Then meeting "2026-11-11-1430-weekly-sync" exists with a mic track and no system track
+    And its status is "transcribing"
+
+  Scenario: Record an online call with mic and system audio
+    When I start recording "Client call" in "mic+system" mode
+    And I stop the recording
+    Then the meeting has a mic track and a system track
+
+  Scenario: Starting a second recording while one is active is refused
+    Given a recording is active
+    When I start another recording
+    Then I am told a recording is already in progress
+    And no second meeting is created
+
+  Scenario: Stopping when nothing is recording
+    When I stop the recording
+    Then I am told no recording is in progress
+
+  Scenario: Audio device unavailable
+    Given the audio capture cannot open the system loopback device
+    When I start recording "Call" in "mic+system" mode
+    Then I am told the device could not be opened
+    And no meeting is left behind
+
+  Scenario: Two meetings with the same title in the same minute
+    When I record "Standup" twice at 2026-11-11 09:00
+    Then the meeting ids are "2026-11-11-0900-standup" and "2026-11-11-0900-standup-2"
+
+  # --- Transcription ---
+
+  Scenario: Online call transcript attributes speakers and interleaves by time
+    Given the mic track transcribes to "Hi all" at 0.0s and "Sounds good" at 5.0s
+    And the system track transcribes to "Hello, let's start" at 2.0s and "Agreed" at 7.0s
+    And diarization of the system track finds speaker A from 1.5s to 4.0s and speaker B from 6.5s to 9.0s
+    When the meeting is transcribed
+    Then its status is "transcribed"
+    And the transcript reads:
+      """
+      [00:00] You: Hi all
+      [00:02] Speaker 1: Hello, let's start
+      [00:05] You: Sounds good
+      [00:07] Speaker 2: Agreed
+      """
+
+  Scenario: In-person transcript labels speakers by voice
+    Given a "mic" meeting whose mic track transcribes to "Let's begin" at 0.0s and "Okay" at 3.0s
+    And diarization finds one speaker from 0.0s to 2.5s and another from 2.8s to 4.0s
+    When the meeting is transcribed
+    Then the transcript reads:
+      """
+      [00:00] Speaker 1: Let's begin
+      [00:03] Speaker 2: Okay
+      """
+
+  Scenario: A segment spanning a speaker change goes to the majority speaker
+    Given a segment from 10.0s to 14.0s
+    And speaker A talks from 9.0s to 11.0s and speaker B from 11.0s to 15.0s
+    When speakers are assigned
+    Then the segment is attributed to speaker B
+
+  Scenario: Diarization fails
+    Given diarization raises "model download failed"
+    When a "mic+system" meeting is transcribed
+    Then its status is "transcribed"
+    And system-track segments are labelled "Others"
+    And the meeting shows the warning "speaker detection failed: model download failed"
+
+  Scenario: Rename a speaker on the web page
+    Given a transcribed meeting with "Speaker 2" in its transcript
+    When I click "Speaker 2" and enter "Somchai"
+    Then every "Speaker 2" line now shows "Somchai"
+    And get_transcript in Claude Desktop shows "Somchai"
+
+  Scenario: Claude names a speaker from context
+    When Claude calls rename_speaker for "Speaker 1" with name "Khun Nok"
+    Then the transcript shows "Khun Nok" in place of "Speaker 1"
+
+  Scenario: Renaming an unknown speaker is refused
+    When I rename "Speaker 9" in a meeting that has only 2 speakers
+    Then I am told there is no "Speaker 9" in that meeting
+
+  Scenario: Transcribing again clears speaker names
+    Given a meeting where "Speaker 1" is named "Somchai"
+    When I transcribe it again
+    Then its transcript uses "Speaker 1", "Speaker 2", … without names
+
+  Scenario: Transcription fails
+    Given speech-to-text raises "model download failed"
+    When the meeting is transcribed
+    Then its status is "failed" with error "model download failed"
+    And its audio tracks are kept
+
+  Scenario: Re-transcribe a failed meeting
+    Given a meeting with status "failed"
+    When I transcribe it again and it succeeds
+    Then its status is "transcribed"
+
+  # --- Languages (Thai and English) ---
+
+  Scenario Outline: Record a meeting in a chosen language
+    When I record a meeting with language "<language>"
+    Then speech-to-text is asked to transcribe each track as "<language>"
+    And the meeting records language "<language>"
+
+    Examples:
+      | language |
+      | th       |
+      | en       |
+
+  Scenario: Auto-detect the language
+    Given speech-to-text detects "th" on the mic track
+    When I record a meeting with language "auto" and it is transcribed
+    Then speech-to-text is asked to detect the language
+    And the meeting shows detected language "th" for the mic track
+
+  Scenario: Re-transcribe with a different language when detection was wrong
+    Given a transcribed meeting whose language was detected as "en"
+    When I transcribe it again with language "th"
+    Then its transcript is replaced with the Thai transcription
+    And the meeting records language "th"
+
+  Scenario: Thai title gives a timestamp-only meeting id
+    When I start recording "ประชุมทีม" at 2026-11-11 14:30
+    Then the meeting id is "2026-11-11-1430"
+    And the meeting title is "ประชุมทีม"
+
+  Scenario: Thai text survives storage, the API and MCP unchanged
+    Given a mic track that transcribes to "สวัสดีครับ เริ่มประชุมกันเลย"
+    When the meeting is transcribed
+    Then transcript.json contains "สวัสดีครับ เริ่มประชุมกันเลย" as UTF-8 text, not \u escapes
+    And the web API and get_transcript both return "[00:00] สวัสดีครับ เริ่มประชุมกันเลย"
+
+  Scenario: Search Thai transcripts
+    Given a transcribed meeting containing "งบประมาณไตรมาสหน้า"
+    When I search for "งบประมาณ"
+    Then I get that hit
+
+  Scenario: A meeting saved with an engine still loads
+    Given a meeting.json from before the engine choice was removed, with "engine": "gemini-cli"
+    When I list meetings
+    Then that meeting is listed and opens like any other
+
+  # --- Reading (CLI and Claude Desktop) ---
+
+  Scenario: List meetings newest first with status
+    Given meetings recorded at 09:00 (transcribed) and 14:30 (transcribing)
+    When I list meetings
+    Then I see the 14:30 meeting first, then the 09:00 meeting, each with title, start time, duration and status
+
+  Scenario: A corrupt meeting folder does not break listing
+    Given one meeting folder has an unreadable meeting.json
+    When I list meetings
+    Then the other meetings are listed
+
+  Scenario: Get the transcript of a meeting still being transcribed
+    Given a meeting with status "transcribing"
+    When I get its transcript
+    Then I am told the transcript is not ready yet, with its status
+
+  Scenario: Get the transcript of an unknown meeting
+    When I get the transcript of "nope"
+    Then I am told no meeting "nope" exists
+
+  Scenario: Search transcripts case-insensitively
+    Given transcribed meetings mentioning "Budget" and "budget review"
+    When I search for "BUDGET"
+    Then I get both hits, each with meeting id, timestamp, speaker and text
+
+  Scenario: An interrupted recording is recovered on service startup
+    Given a meeting left with status "recording" by a service that crashed
+    When the recorder service starts
+    Then that meeting's status is "failed" with error "interrupted"
+    And its audio can be transcribed again
+
+  # --- Web UI ---
+
+  Scenario: Start and stop a recording from the web page
+    Given the web page shows "Not recording"
+    When I enter title "Design review", pick "mic+system" and press Start
+    Then the page shows "● Recording" with an elapsed time that increases
+    When I press Stop
+    Then the page shows "Not recording"
+    And the meeting appears at the top of the list as "transcribing"
+    And the page opens that meeting showing "Transcribing…"
+    And when transcription finishes, its transcript appears and its status shows "transcribed", without a page reload
+
+  Scenario: The web page reflects a recording started elsewhere
+    Given Claude started a recording "Standup"
+    When I open the web page
+    Then it shows "● Recording" for "Standup" and offers Stop
+
+  Scenario: View a meeting on the web page
+    Given a transcribed "mic+system" meeting
+    When I open it on the web page
+    Then I see its transcript with timestamps and speakers
+    And an audio player for the mic track and one for the system track
+
+  Scenario: Re-transcribe a failed meeting from the web page
+    Given a meeting with status "failed"
+    When I open it and press "Transcribe again"
+    Then its status changes to "transcribing"
+
+  Scenario: Another website cannot start a recording
+    When a request to start a recording arrives with Origin "https://evil.example"
+    Then it is refused with 403
+    And no recording starts
+
+  Scenario: Requesting audio outside a meeting folder is refused
+    When audio is requested for meeting "../../Windows" or track "secrets"
+    Then it is refused with 404
+
+  # --- Claude Desktop ---
+
+  Scenario: Claude Desktop starts and stops a recording
+    When Claude calls start_recording with title "Design review" and mode "mic+system"
+    And Claude calls stop_recording
+    Then the reply contains the meeting id and says transcription has started
+    And list_meetings later shows that meeting as "transcribed"
+
+  Scenario: Claude stops a recording started from the web page
+    Given a recording was started from the web page
+    When Claude calls stop_recording
+    Then that recording stops
+
+  Scenario: The recorder service is not running
+    Given the recorder service is not running
+    When Claude calls start_recording
+    Then the reply says the recorder service is not running and to start it with "transcribe serve"
