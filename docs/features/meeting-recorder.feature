@@ -205,6 +205,23 @@ Feature: Record, transcribe and read local meetings
     Then I see its transcript with timestamps and speakers
     And an audio player for the mic track and one for the system track
 
+  Scenario: Audio keeps playing while the meeting is transcribing
+    Given a meeting with status "transcribing"
+    And I am playing its mic track on the web page
+    When the page refreshes the transcription progress
+    Then the audio keeps playing without restarting or flickering
+
+  Scenario: Choose the speaker the audio plays through
+    Given the browser can pick an audio output device
+    When I choose "Headphones" under "Play through" in a meeting view
+    Then every track plays through "Headphones"
+    And the choice is remembered the next time I open the page
+
+  Scenario: Output device choice unavailable
+    Given the browser cannot pick an audio output device
+    When I open a meeting
+    Then there is no "Play through" picker and audio plays through the Windows default output
+
   Scenario: Re-transcribe a failed meeting from the web page
     Given a meeting with status "failed"
     When I open it and press "Transcribe again"
