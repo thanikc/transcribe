@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import tempfile
@@ -48,6 +49,8 @@ def _serve(port: int, fake: bool) -> int:
         )
         return 1
     import uvicorn
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     from transcribe.recorder import Recorder
     from transcribe.store import MeetingStore

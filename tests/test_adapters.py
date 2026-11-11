@@ -43,6 +43,25 @@ def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
     assert seen == [0.25, 0.5, 1.0]
 
 
+def test_whisper_logs_how_long_it_took_and_on_which_device(tmp_path, caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from transcribe.stt import WhisperSpeechToText
+
+    class Model:
+        def transcribe(self, wav, language, vad_filter):
+            return iter(()), SimpleNamespace(language="en", duration=125.0)
+
+    stt = WhisperSpeechToText("tiny")
+    stt._model, stt._device = Model(), "cuda (float16)"
+    with caplog.at_level(logging.INFO, logger="transcribe.stt"):
+        stt.transcribe(tmp_path / "mic.wav", None, lambda f: None)
+    [message] = caplog.messages
+    assert message.startswith("transcribed mic.wav (2m05s of audio) in ")
+    assert message.endswith("s on cuda (float16)")
+
+
 def test_diarizer_reports_processed_chunks(tmp_path):
     import wave
     from types import SimpleNamespace
