@@ -66,12 +66,15 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
   `GET /api/meetings/{id}/audio/{track}` (WAV), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `GET /api/search?q=`.
   `stop` returns at once. Transcription runs in a background thread, and the status is shown in the meeting listings.
+  While it runs, each meeting's JSON carries `progress`: `{step, step_number, steps, fraction, elapsed}` (null otherwise).
+  The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null
+  until the step reports, e.g. while the model loads. Progress is kept in memory only.
 - **Web UI** (`GET /`): one static HTML page with vanilla JS, which polls `/api/status` every second.
   - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
   - A meetings list: newest first, with status badges that update while transcribing.
   - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track, the language (forced or detected), and a "Transcribe again" button with a language picker, for a failed meeting or one where auto-detection got the language wrong.
   - Fonts: a system font stack that includes Thai faces (`Leelawadee UI`, `Noto Sans Thai`) and `<meta charset="utf-8">`.
-    When you press Stop, the page opens the new meeting showing "Transcribing…" and swaps in the transcript when it's ready (by polling). The transcript is shown only after recording, never live.
+    When you press Stop, the page opens the new meeting showing the current step, "step n of N", a progress bar (animated without a percentage while the model loads) and the time spent on the step, and swaps in the transcript when it's ready (by polling). The list badge shows the percentage. The status line reads "Starting…"/"Stopping…" while the devices open or close. The transcript is shown only after recording, never live.
 - **MCP shim** (`transcribe mcp`, stdio). Tools: `start_recording(title, mode, language="auto")`, `stop_recording()`, `list_meetings()`, `get_transcript(meeting_id)`, `search_transcripts(query)`, `rename_speaker(meeting_id, speaker, name)` (so Claude can name speakers it works out from context, e.g. "thanks, Somchai"), each forwarded to the service.
 - **CLI** (`transcribe`): `serve`, `mcp`, `record [--title] [--mode] [--language auto|th|en]` (starts a recording through the service; Ctrl+C stops it), `list`, `show <id>`, `search <query>`.
 
@@ -90,6 +93,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - `transcribe serve` has to be running for start/stop to work, from the web, Claude or the CLI. Otherwise clients say "recorder service not running, start it with `transcribe serve`". Reading transcripts through MCP also goes through the service.
 - If the service stops during a recording, that meeting is left `recording`. On startup, the service marks such meetings `failed` ("interrupted"), and their audio can still be transcribed.
 - Transcription happens after the recording, not live.
-- `large-v3` on CPU takes roughly 1–2× the meeting length to transcribe. Status stays `transcribing` meanwhile.
+- `large-v3` on CPU takes roughly 1–2× the meeting length to transcribe. Status stays `transcribing` meanwhile, with step progress.
+- The first-run model download (~3 GB for `large-v3`) has no percentage: the step shows an animated bar and a timer.
 - Diarization is approximate: overlapping speech, similar voices and very short turns get mislabelled. A segment that spans a speaker change goes to whoever spoke most of it. The number of speakers is estimated, not asked for.
 - Thai-English switching inside one meeting is not handled specially. The minority language may come out poorly or get translated.

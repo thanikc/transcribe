@@ -12,7 +12,7 @@ from starlette.testclient import TestClient
 
 from fakes import FakeCapture, FakeDiarizer, FakeSpeechToText
 from transcribe import cli
-from transcribe.client import ServiceClient, httpx
+from transcribe.client import ServiceClient, httpx, meeting_line, transcript_text
 from transcribe.domain import Segment, SpeakerTurn
 from transcribe.recorder import Recorder
 from transcribe.store import MeetingStore
@@ -77,3 +77,34 @@ def test_serve_refuses_a_windows_virtualenv_on_a_wsl_path(
     assert cli.main(["serve"]) == 1
     err = capsys.readouterr().err
     assert "network path" in err and "transcribe.cmd" in err
+
+
+def _transcribing(progress: dict | None) -> dict:
+    return {
+        "id": "2026-11-11-1430-call",
+        "title": "Call",
+        "started_at": "2026-11-11T14:30:00",
+        "duration": 60.0,
+        "status": "transcribing",
+        "progress": progress,
+    }
+
+
+STEP = {"step": "Transcribing system audio", "step_number": 2, "steps": 3, "elapsed": 12.0}
+
+
+def test_not_ready_message_names_the_step() -> None:
+    meeting = _transcribing({**STEP, "fraction": 0.4})
+    assert transcript_text({"meeting": meeting, "transcript": None}) == (
+        'the transcript of "2026-11-11-1430-call" is not ready yet '
+        "(status: transcribing; Transcribing system audio, step 2 of 3, 40%)"
+    )
+    assert meeting_line(meeting).endswith("transcribing (step 2 of 3, 40%)")
+
+
+def test_step_without_a_fraction_yet() -> None:
+    meeting = _transcribing({**STEP, "fraction": None})
+    assert transcript_text({"meeting": meeting, "transcript": None}).endswith(
+        "(status: transcribing; Transcribing system audio, step 2 of 3)"
+    )
+    assert meeting_line(_transcribing(None)).endswith("  transcribing")

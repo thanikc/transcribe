@@ -16,6 +16,7 @@ from transcribe.domain import (
     render_transcript,
     rename_speaker,
     search_transcripts,
+    transcription_steps,
     transition,
 )
 
@@ -209,3 +210,14 @@ def test_search_is_case_insensitive_with_hits_carrying_context():
 def test_search_finds_thai_substrings():
     hits = search_transcripts([(make_meeting(), [Segment(0, 1, "งบประมาณไตรมาสหน้า")])], "งบประมาณ")
     assert len(hits) == 1
+
+
+@pytest.mark.parametrize(
+    "mode, labels",
+    [
+        ("mic", ["Transcribing microphone", "Detecting speakers"]),
+        ("mic+system", ["Transcribing microphone", "Transcribing system audio", "Detecting speakers"]),
+    ],
+)
+def test_transcription_steps_of_each_mode(mode: str, labels: list[str]) -> None:
+    assert [step.label for step in transcription_steps(mode)] == labels

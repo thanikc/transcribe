@@ -7,6 +7,7 @@ import threading
 import urllib.request
 import wave
 from pathlib import Path
+from typing import Callable
 
 from transcribe.domain import SpeakerTurn
 
@@ -67,7 +68,12 @@ class SherpaDiarizer:
                 self._engine = so.OfflineSpeakerDiarization(config)
             return self._engine
 
-    def diarize(self, wav: Path) -> list[SpeakerTurn]:
+    def diarize(self, wav: Path, on_progress: Callable[[float], None]) -> list[SpeakerTurn]:
         engine = self._load()
-        result = engine.process(_read_mono(wav, engine.sample_rate)).sort_by_start_time()
+
+        def callback(done: int, total: int) -> int:
+            on_progress(done / total if total else 1.0)
+            return 0  # non-zero would ask sherpa-onnx to stop
+
+        result = engine.process(_read_mono(wav, engine.sample_rate), callback=callback).sort_by_start_time()
         return [SpeakerTurn(r.start, r.end, f"spk{r.speaker}") for r in result]

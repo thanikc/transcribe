@@ -254,3 +254,22 @@ def test_search_thai_and_case_insensitive(rig: Rig) -> None:
 def test_search_requires_query(rig: Rig) -> None:
     assert rig.client.get("/api/search").status_code == 400
     assert rig.client.get("/api/search", params={"q": "  "}).status_code == 400
+
+
+def test_transcribing_meeting_shows_progress_in_detail_and_list(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    jobs: list = []
+    rig.recorder.run_in_background = jobs.append
+    meeting_id = rig.record()
+    seen = []
+
+    def look(on_progress) -> None:
+        on_progress(0.4)
+        seen.append(rig.client.get(f"/api/meetings/{meeting_id}").json()["meeting"]["progress"])
+        seen.append(rig.client.get("/api/meetings").json()["meetings"][0]["progress"])
+
+    rig.stt.during = look
+    jobs.pop()()
+    step = {"step": "Transcribing microphone", "step_number": 1, "steps": 2, "fraction": 0.4, "elapsed": 0}
+    assert seen == [step, step]
+    assert rig.client.get(f"/api/meetings/{meeting_id}").json()["meeting"]["progress"] is None

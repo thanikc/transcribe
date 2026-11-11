@@ -64,6 +64,9 @@ ul.list li + li { margin-top: 4px; }
 .tracks { display: grid; gap: 8px; margin: 12px 0; }
 .tracks audio { width: 100%; }
 .warn { color: var(--warn); margin: 4px 0; }
+.progress { margin: 12px 0; }
+.progress p { margin: 0 0 6px; }
+.progress progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .transcript { margin: 12px 0 0; padding: 0; list-style: none; }
 .transcript li { padding: 4px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .ts { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; }
@@ -135,7 +138,7 @@ const MODE_LABEL = { mic: "In person (mic)", "mic+system": "Online call (mic + s
 const state = {
   recording: false, recId: null, recTitle: "", elapsed: 0, elapsedAt: 0,
   meetings: [], currentId: null, detail: null, busy: false,
-  viewTimer: null, viewToken: 0,
+  viewTimer: null, viewToken: 0, detailAt: 0,
 };
 
 function el(tag, props, ...kids) {
@@ -166,15 +169,18 @@ async function api(method, path, body) {
 /* ---------- recording panel ---------- */
 function renderStatus() {
   const s = $("status"), btn = $("toggle");
-  if (state.recording) {
+  if (state.busy) {
+    // Opening or closing audio devices can take a few seconds.
+    s.className = ""; s.textContent = state.recording ? "Stopping…" : "Starting…";
+  } else if (state.recording) {
     const el_ = state.elapsed + (performance.now() - state.elapsedAt) / 1000;
     s.className = "rec";
     s.textContent = `● Recording ${mmss(el_)}` + (state.recTitle ? ` — ${state.recTitle}` : "");
-    btn.textContent = "Stop recording"; btn.className = "stop";
   } else {
     s.className = ""; s.textContent = "Not recording";
-    btn.textContent = "Start recording"; btn.className = "primary";
   }
+  btn.textContent = state.recording ? "Stop recording" : "Start recording";
+  btn.className = state.recording ? "stop" : "primary";
   btn.disabled = state.busy;
 }
 function showRecError(msg) { $("rec-error").textContent = msg || ""; }
@@ -222,14 +228,17 @@ async function loadMeetings() {
     renderList();
   } catch (e) { /* ignore */ }
 }
-function badge(status) { return el("span", { class: "badge " + status, text: STATUS_LABEL[status] || status }); }
+const percent = (p) => (p && p.fraction != null ? ` ${Math.round(p.fraction * 100)}%` : "");
+function badge(status, progress) {
+  return el("span", { class: "badge " + status, text: (STATUS_LABEL[status] || status) + percent(progress) });
+}
 function renderList() {
   const ul = $("meetings"); ul.replaceChildren();
   $("no-meetings").hidden = state.meetings.length > 0;
   for (const m of state.meetings) {
     const when = new Date(m.started_at).toLocaleString();
     const b = el("button", { type: "button", class: "item", "data-id": m.id, onclick: () => openMeeting(m.id) },
-      el("div", { class: "t" }, document.createTextNode(m.title || m.id), badge(m.status)),
+      el("div", { class: "t" }, document.createTextNode(m.title || m.id), badge(m.status, m.progress)),
       el("div", { class: "m", text: `${when} · ${mmss(m.duration)}` }));
     if (m.id === state.currentId) b.setAttribute("aria-current", "true");
     ul.append(el("li", null, b));
@@ -267,7 +276,7 @@ async function showMeeting(id) {
   }
 }
 function applyDetail(d, token) {
-  state.detail = d;
+  state.detail = d; state.detailAt = performance.now();
   renderMeeting();
   const s = d.meeting.status;
   if (s === "transcribing" || s === "recording") {
@@ -280,7 +289,8 @@ function applyDetail(d, token) {
       } catch (e) { if (token === state.viewToken) applyDetail(d, token); }
     }, 2000);
   }
-  if (!state.meetings.some((m) => m.id === d.meeting.id && m.status === s)) loadMeetings();
+  const listed = state.meetings.find((m) => m.id === d.meeting.id);
+  if (listed && listed.status === s) { listed.progress = d.meeting.progress; renderList(); } else loadMeetings();
 }
 
 const palette = {};
@@ -328,7 +338,7 @@ function renderMeeting() {
   if (m.status === "recording") {
     view.append(el("p", { class: "muted", text: "Recording in progress. The transcript appears after you stop." }));
   } else if (m.status === "transcribing") {
-    view.append(el("p", { role: "status", text: "Transcribing…" }));
+    view.append(renderProgress(m.progress));
   } else if (m.status === "transcribed" && segments) {
     if (!segments.length) view.append(el("p", { class: "muted", text: "No speech was found." }));
     const ol = el("ol", { class: "transcript", "aria-label": "Transcript" });
@@ -366,6 +376,27 @@ function renderMeeting() {
     view.append(again);
   }
 }
+
+function renderProgress(p) {
+  const box = el("div", { class: "progress" });
+  if (!p) { box.append(el("p", { role: "status", text: "Transcribing…" })); return box; }
+  const bar = el("progress", { max: "1", "aria-label": p.step });
+  if (p.fraction != null) bar.value = p.fraction;  // no value: an indeterminate, animated bar
+  box.append(
+    el("p", null, el("strong", { role: "status", text: p.step }),
+      el("span", { class: "muted", text: ` · step ${p.step_number} of ${p.steps}` + (p.fraction != null ? ` ·${percent(p)}` : "") })),
+    bar,
+    el("p", { class: "muted", id: "step-time", text: stepTimeText() }));
+  return box;
+}
+function stepTimeText() {
+  const p = state.detail && state.detail.meeting.progress;
+  if (!p) return "";
+  const t = mmss(p.elapsed + (performance.now() - state.detailAt) / 1000);
+  // Before the first percentage the model is loading; the first run downloads it (~3 GB for large-v3).
+  return p.fraction == null ? `${t} · preparing (the first run downloads the model, which can take several minutes)` : t;
+}
+setInterval(() => { const t = $("step-time"); if (t) t.textContent = stepTimeText(); }, 500);
 
 async function renameSpeaker(raw, current) {
   const name = prompt(`Name for ${raw} (leave empty to reset):`, current === raw ? "" : current);

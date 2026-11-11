@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -67,9 +68,13 @@ class FakeSTT:
         self.detected = detected
         self.error: Exception | None = None
         self.calls: list[tuple[str, str | None]] = []
+        self.during: Callable[[Callable[[float], None]], None] = lambda on_progress: None
 
-    def transcribe(self, wav: Path, language: str | None) -> tuple[list[Segment], str]:
+    def transcribe(
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+    ) -> tuple[list[Segment], str]:
         self.calls.append((wav.stem, language))
+        self.during(on_progress)
         if self.error:
             raise self.error
         return self.by_track.get(wav.stem, []), self.detected
@@ -80,9 +85,11 @@ class FakeDiarizer:
         self.turns = turns or {}
         self.error: Exception | None = None
         self.calls: list[str] = []
+        self.during: Callable[[Callable[[float], None]], None] = lambda on_progress: None
 
-    def diarize(self, wav: Path) -> list[SpeakerTurn]:
+    def diarize(self, wav: Path, on_progress: Callable[[float], None]) -> list[SpeakerTurn]:
         self.calls.append(wav.stem)
+        self.during(on_progress)
         if self.error:
             raise self.error
         return self.turns.get(wav.stem, [])
@@ -368,3 +375,48 @@ def test_search_covers_transcribed_meetings_newest_first(rig: Rig) -> None:
     hits = rig.recorder.search("BUDGET")
     assert [h.meeting_id for h in hits] == [second.id, first.id]
     assert rig.recorder.search("nothing") == []
+
+
+def test_progress_names_the_current_step_and_fraction(rig: Rig) -> None:
+    meeting = rig.record(mode="mic+system")
+    seen = []
+
+    def report_system(on_progress: Callable[[float], None]) -> None:
+        if rig.whisper.calls[-1][0] == "system":
+            seen.append(rig.recorder.progress(meeting.id))
+            on_progress(0.4)
+            rig.clock.now += timedelta(seconds=30)
+            seen.append(rig.recorder.progress(meeting.id))
+
+    rig.whisper.during = report_system
+    rig.run_jobs()
+    step = {"step": "Transcribing system audio", "step_number": 2, "steps": 3}
+    assert seen == [
+        {**step, "fraction": None, "elapsed": 0},
+        {**step, "fraction": 0.4, "elapsed": 30},
+    ]
+
+
+def test_progress_reports_speaker_detection(rig: Rig) -> None:
+    meeting = rig.record(mode="mic")
+    seen = []
+
+    def report(on_progress: Callable[[float], None]) -> None:
+        on_progress(1.5)  # adapters may overshoot; shown as done, never above
+        seen.append(rig.recorder.progress(meeting.id))
+
+    rig.diarizer.during = report
+    rig.run_jobs()
+    assert seen == [{"step": "Detecting speakers", "step_number": 2, "steps": 2, "fraction": 1.0, "elapsed": 0}]
+
+
+def test_no_progress_outside_a_running_job(rig: Rig) -> None:
+    meeting = rig.record()
+    assert rig.recorder.progress(meeting.id) is None  # queued, not started
+    rig.run_jobs()
+    assert rig.recorder.progress(meeting.id) is None
+    rig.whisper.error = RuntimeError("model download failed")
+    rig.recorder.transcribe(meeting.id)
+    rig.run_jobs()
+    assert rig.store.get(meeting.id).status == Status.FAILED
+    assert rig.recorder.progress(meeting.id) is None

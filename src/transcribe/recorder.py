@@ -26,6 +26,7 @@ from transcribe.domain import (
     merge_transcript,
     rename_speaker,
     search_transcripts,
+    transcription_steps,
     transition,
 )
 from transcribe.store import MeetingStore
@@ -45,13 +46,19 @@ class AudioCapture(Protocol):
         """Start streaming each track to its WAV file. Raises CaptureError if a device can't open."""
 
 
+# Called from the worker thread with the share of the work done so far, 0.0 to 1.0.
+ProgressCallback = Callable[[float], None]
+
+
 class SpeechToText(Protocol):
-    def transcribe(self, wav: Path, language: str | None) -> tuple[list[Segment], str]:
+    def transcribe(
+        self, wav: Path, language: str | None, on_progress: ProgressCallback
+    ) -> tuple[list[Segment], str]:
         """Track WAV + language (None = detect) -> (segments without speakers, detected language)."""
 
 
 class SpeakerDiarizer(Protocol):
-    def diarize(self, wav: Path) -> list[SpeakerTurn]:
+    def diarize(self, wav: Path, on_progress: ProgressCallback) -> list[SpeakerTurn]:
         """Track WAV -> speaker turns with raw labels."""
 
 
@@ -77,6 +84,10 @@ class Recorder:
         self.run_in_background = run_in_background
         self._lock = threading.Lock()
         self._active: tuple[Meeting, CaptureSession] | None = None
+        # In memory only: a restart marks running jobs failed, so there is nothing to resume.
+        self._progress: dict[str, dict] = {}
+        # Separate from _lock, which is held while audio devices open; page polls must not wait on that.
+        self._progress_lock = threading.Lock()
 
     def _check_language(self, language: str) -> None:
         if language not in LANGUAGES:
@@ -95,6 +106,36 @@ class Recorder:
                 "language": meeting.language,
                 "elapsed": (self.clock() - meeting.started_at).total_seconds(),
             }
+
+    def progress(self, meeting_id: str) -> dict | None:
+        """Current step of a running transcription, or None when none is running."""
+        with self._progress_lock:
+            current = self._progress.get(meeting_id)
+            if current is None:
+                return None
+            started_at = current["started_at"]
+        return {
+            **{k: v for k, v in current.items() if k != "started_at"},
+            "elapsed": (self.clock() - started_at).total_seconds(),
+        }
+
+    def _begin_step(self, meeting_id: str, label: str, number: int, total: int) -> None:
+        with self._progress_lock:
+            self._progress[meeting_id] = {
+                "step": label,
+                "step_number": number,
+                "steps": total,
+                "fraction": None,
+                "started_at": self.clock(),
+            }
+
+    def _report_fraction(self, meeting_id: str, fraction: float) -> None:
+        with self._progress_lock:
+            if meeting_id in self._progress:
+                self._progress[meeting_id] = {
+                    **self._progress[meeting_id],
+                    "fraction": min(max(fraction, 0.0), 1.0),
+                }
 
     def start(self, title: str, mode: str, language: str = "auto") -> Meeting:
         if mode not in MODES:
@@ -198,26 +239,31 @@ class Recorder:
                 self.store.save(transition(self.store.get(meeting_id), Status.FAILED, str(e)))
         except Exception:
             pass
+        finally:
+            with self._progress_lock:
+                self._progress.pop(meeting_id, None)
 
     def _run_transcription(self, meeting: Meeting) -> None:
         language = None if meeting.language == "auto" else meeting.language
         detected: dict[str, str] = {}
         warnings: list[str] = []
-        labelled: dict[str, list[Segment]] = {}
-        for track in meeting.tracks:
-            wav = self.store.track_path(meeting.id, track)
-            segments, detected[track] = self.stt.transcribe(wav, language)
-            turns = None
-            # In mic+system mode the mic track is always "You".
-            if track == "system" or meeting.mode == "mic":
-                try:
-                    turns = self.diarizer.diarize(wav)
-                except Exception as e:
-                    turns = None
-                    warning = f"speaker detection failed: {e}"
-                    if warning not in warnings:
-                        warnings.append(warning)
-            labelled[track] = label_track(segments, track, meeting.mode, turns)
+        segments: dict[str, list[Segment]] = {}
+        turns: dict[str, list[SpeakerTurn]] = {}
+        steps = transcription_steps(meeting.mode)
+        report = lambda fraction: self._report_fraction(meeting.id, fraction)  # noqa: E731
+        for number, step in enumerate(steps, start=1):
+            self._begin_step(meeting.id, step.label, number, len(steps))
+            wav = self.store.track_path(meeting.id, step.track)
+            if step.kind == "transcribe":
+                segments[step.track], detected[step.track] = self.stt.transcribe(wav, language, report)
+                continue
+            try:
+                turns[step.track] = self.diarizer.diarize(wav, report)
+            except Exception as e:
+                warnings.append(f"speaker detection failed: {e}")
+        labelled = {
+            track: label_track(segs, track, meeting.mode, turns.get(track)) for track, segs in segments.items()
+        }
         self.store.save_transcript(meeting.id, merge_transcript(labelled))
         done = transition(meeting, Status.TRANSCRIBED)
         self.store.save(replace(done, detected_languages=detected, warnings=warnings))

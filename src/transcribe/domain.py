@@ -136,6 +136,30 @@ class Meeting:
         )
 
 
+_TRACK_NAMES = {"mic": "microphone", "system": "system audio"}
+
+
+@dataclass(frozen=True)
+class TranscriptionStep:
+    kind: Literal["transcribe", "diarize"]
+    track: str
+
+    @property
+    def label(self) -> str:
+        return f"Transcribing {_TRACK_NAMES[self.track]}" if self.kind == "transcribe" else "Detecting speakers"
+
+
+def transcription_steps(mode: str) -> list[TranscriptionStep]:
+    """Work done after a recording, in order. In mic+system mode the mic track is always "You"."""
+    if mode == "mic+system":
+        return [
+            TranscriptionStep("transcribe", "mic"),
+            TranscriptionStep("transcribe", "system"),
+            TranscriptionStep("diarize", "system"),
+        ]
+    return [TranscriptionStep("transcribe", "mic"), TranscriptionStep("diarize", "mic")]
+
+
 def meeting_id(title: str, started_at: datetime, existing: set[str]) -> str:
     """Start time + ASCII slug of the title, with -2, -3… if already taken."""
     slug = "-".join(re.findall(r"[a-z0-9]+", title.lower()))

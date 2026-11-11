@@ -56,10 +56,6 @@ async def _domain_error(request: Request, exc: Exception) -> Response:
     return _error(str(exc), status)
 
 
-def _meeting_json(meeting: Meeting) -> dict:
-    return {**meeting.to_dict(), "tracks": meeting.tracks}
-
-
 def _timestamp(seconds: float) -> str:
     minutes, secs = divmod(int(seconds), 60)
     return f"[{minutes:02d}:{secs:02d}]"
@@ -84,6 +80,9 @@ async def _body(request: Request, required: tuple[str, ...] = (), optional: tupl
 
 
 def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> Starlette:
+    def _meeting_json(meeting: Meeting) -> dict:
+        return {**meeting.to_dict(), "tracks": meeting.tracks, "progress": recorder.progress(meeting.id)}
+
     def detail(meeting_id: str) -> dict:
         meeting = recorder.store.get(meeting_id)
         if meeting.status != Status.TRANSCRIBED:

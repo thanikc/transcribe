@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Callable
 
 from transcribe.domain import Segment
 
@@ -28,6 +29,15 @@ class WhisperSpeechToText:
                 )
             return self._model
 
-    def transcribe(self, wav: Path, language: str | None) -> tuple[list[Segment], str]:
+    def transcribe(
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+    ) -> tuple[list[Segment], str]:
+        # Lazy generator: the decoding happens while iterating, so progress follows it.
         segments, info = self._load().transcribe(str(wav), language=language, vad_filter=True)
-        return [Segment(s.start, s.end, s.text.strip()) for s in segments], info.language
+        result = []
+        for s in segments:
+            result.append(Segment(s.start, s.end, s.text.strip()))
+            if info.duration:
+                on_progress(s.end / info.duration)
+        on_progress(1.0)
+        return result, info.language

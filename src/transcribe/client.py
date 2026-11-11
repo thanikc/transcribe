@@ -71,17 +71,26 @@ def _clock(seconds: float | None) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _step(progress: dict) -> str:
+    """"step 2 of 3, 40%", without the percentage until the step reports one."""
+    text = f"step {progress['step_number']} of {progress['steps']}"
+    return text if progress["fraction"] is None else f"{text}, {round(progress['fraction'] * 100)}%"
+
+
 def meeting_line(m: dict) -> str:
     """One listing line: id, title, start time, duration, status."""
     start = m["started_at"][:16].replace("T", " ")
-    return f"{m['id']}  {m['title']}  {start}  {_clock(m['duration'])}  {m['status']}"
+    status = m["status"] + (f" ({_step(m['progress'])})" if m.get("progress") else "")
+    return f"{m['id']}  {m['title']}  {start}  {_clock(m['duration'])}  {status}"
 
 
 def transcript_text(detail: dict) -> str:
     """Header plus the rendered transcript, or the not-ready message."""
     m = detail["meeting"]
     if detail["transcript"] is None:
-        return f'the transcript of "{m["id"]}" is not ready yet (status: {m["status"]})'
+        progress = m.get("progress")
+        doing = f"; {progress['step']}, {_step(progress)}" if progress else ""
+        return f'the transcript of "{m["id"]}" is not ready yet (status: {m["status"]}{doing})'
     language = m["language"]
     if language == "auto" and m["detected_languages"]:
         language = "auto (detected: " + ", ".join(sorted(set(m["detected_languages"].values()))) + ")"

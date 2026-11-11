@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import wave
 from pathlib import Path
+from typing import Callable
 
 from transcribe.domain import Segment, SpeakerTurn
 
@@ -33,11 +34,19 @@ class FakeCapture:
 
 
 class FakeSpeechToText:
-    def transcribe(self, wav: Path, language: str | None) -> tuple[list[Segment], str]:
-        time.sleep(2)
+    def transcribe(
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+    ) -> tuple[list[Segment], str]:
+        time.sleep(2)  # model loading: no fraction yet
+        for tenth in range(1, 11):
+            time.sleep(0.4)
+            on_progress(tenth / 10)
         return list(SEGMENTS), language or "th"
 
 
 class FakeDiarizer:
-    def diarize(self, wav: Path) -> list[SpeakerTurn]:
+    def diarize(self, wav: Path, on_progress: Callable[[float], None]) -> list[SpeakerTurn]:
+        for quarter in range(1, 5):
+            time.sleep(0.4)
+            on_progress(quarter / 4)
         return list(TURNS)
