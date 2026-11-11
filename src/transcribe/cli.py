@@ -32,7 +32,21 @@ def _client() -> ServiceClient:
     return connect(_port())
 
 
+def _venv_on_network_path() -> bool:
+    # Windows cannot load native extension DLLs (numpy, ctranslate2, onnxruntime) from a UNC path,
+    # which is where a virtualenv inside a WSL checkout ends up.
+    return sys.platform == "win32" and sys.prefix.startswith("\\\\")
+
+
 def _serve(port: int, fake: bool) -> int:
+    if not fake and _venv_on_network_path():
+        print(
+            f"The virtualenv is on a network path ({sys.prefix}), where Windows cannot load numpy.\n"
+            "Start the service with transcribe.cmd from the repo, or set UV_PROJECT_ENVIRONMENT "
+            "to a folder on a Windows drive (see the README).",
+            file=sys.stderr,
+        )
+        return 1
     import uvicorn
 
     from transcribe.recorder import Recorder

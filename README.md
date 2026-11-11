@@ -17,17 +17,13 @@ transcripts from Claude Desktop.
    cd C:\path\to\transcribe
    uv sync
    ```
-   **If the repo lives in WSL**, run uv from Windows against the `\\wsl.localhost\...` path,
-   but keep the Windows virtualenv on a Windows drive. Windows cannot load native extension
-   DLLs (numpy, ctranslate2, onnxruntime) from a `\\wsl.localhost` path: recording fails with
-   `DLL load failed ... The parameter is incorrect`. A virtualenv there would also overwrite the WSL `.venv`.
-   Set the variable once, persistently, then open a **new** PowerShell:
+   **If the repo lives in WSL**, don't run `uv` directly from Windows: it would put a Windows
+   virtualenv in the WSL `.venv`, and Windows cannot load native extension DLLs (numpy,
+   ctranslate2, onnxruntime) from a `\\wsl.localhost` path. Recording then fails with
+   `DLL load failed ... The parameter is incorrect`. Use the `transcribe.cmd` launcher in the repo
+   instead. It keeps the virtualenv in `%LOCALAPPDATA%\transcribe\venv` and installs on first run:
    ```powershell
-   [Environment]::SetEnvironmentVariable("UV_PROJECT_ENVIRONMENT", "$env:LOCALAPPDATA\transcribe\venv", "User")
-   ```
-   ```powershell
-   cd \\wsl.localhost\<distro>\home\<you>\dev\projects\transcribe
-   uv sync
+   \\wsl.localhost\<distro>\home\<you>\dev\projects\transcribe\transcribe.cmd serve
    ```
 3. Start the recorder service and open the page:
    ```powershell
@@ -48,6 +44,8 @@ Press Win+R, type `shell:startup` and create a shortcut there with this target:
 ```
 cmd /c "cd /d C:\path\to\transcribe && uv run transcribe serve"
 ```
+
+For a repo in WSL, use `\\wsl.localhost\<distro>\...\transcribe\transcribe.cmd serve` as the target.
 
 ## Claude Desktop
 

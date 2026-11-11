@@ -67,3 +67,13 @@ def test_service_not_running(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Cap
     monkeypatch.setattr(cli, "_client", lambda: ServiceClient(httpx.Client(base_url="http://127.0.0.1:1")))
     assert cli.main(["list"]) == 1
     assert "transcribe serve" in capsys.readouterr().err
+
+
+def test_serve_refuses_a_windows_virtualenv_on_a_wsl_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "prefix", r"\\?\UNC\wsl.localhost\Ubuntu\home\me\transcribe\.venv")
+    assert cli.main(["serve"]) == 1
+    err = capsys.readouterr().err
+    assert "network path" in err and "transcribe.cmd" in err
