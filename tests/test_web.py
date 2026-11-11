@@ -273,3 +273,33 @@ def test_transcribing_meeting_shows_progress_in_detail_and_list(tmp_path: Path) 
     step = {"step": "Transcribing microphone", "step_number": 1, "steps": 2, "fraction": 0.4, "elapsed": 0}
     assert seen == [step, step]
     assert rig.client.get(f"/api/meetings/{meeting_id}").json()["meeting"]["progress"] is None
+
+
+def test_delete_meeting(rig: Rig) -> None:
+    meeting_id = rig.record()
+    response = rig.client.request("DELETE", f"/api/meetings/{meeting_id}", json={})
+    assert response.status_code == 200
+    assert response.json() == {"deleted": meeting_id}
+    assert rig.client.get("/api/meetings").json()["meetings"] == []
+    assert rig.client.get(f"/api/meetings/{meeting_id}").status_code == 404
+
+
+def test_delete_recording_meeting_conflicts(rig: Rig) -> None:
+    meeting_id = rig.client.post("/api/recordings/start", json={"title": "Live", "mode": "mic"}).json()["meeting"]["id"]
+    response = rig.client.request("DELETE", f"/api/meetings/{meeting_id}", json={})
+    assert response.status_code == 409
+    assert "stop the recording first" in response.json()["error"]
+
+
+def test_delete_unknown_meeting_is_404(rig: Rig) -> None:
+    assert rig.client.request("DELETE", "/api/meetings/nope", json={}).status_code == 404
+
+
+def test_delete_from_foreign_origin_or_without_json_is_refused(rig: Rig) -> None:
+    meeting_id = rig.record()
+    foreign = rig.client.request(
+        "DELETE", f"/api/meetings/{meeting_id}", json={}, headers={"Origin": "https://evil.example"}
+    )
+    assert foreign.status_code == 403
+    assert rig.client.request("DELETE", f"/api/meetings/{meeting_id}").status_code == 415
+    assert rig.client.get(f"/api/meetings/{meeting_id}").status_code == 200

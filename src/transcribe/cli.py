@@ -1,4 +1,4 @@
-"""Command line: `transcribe serve|mcp|record|list|show|search`."""
+"""Command line: `transcribe serve|mcp|record|list|show|search|delete`."""
 
 from __future__ import annotations
 
@@ -117,6 +117,8 @@ def _build_parser() -> argparse.ArgumentParser:
     show.add_argument("id")
     search = commands.add_parser("search", help="search all transcripts")
     search.add_argument("query")
+    delete = commands.add_parser("delete", help="permanently delete a meeting: audio, transcript and all")
+    delete.add_argument("id")
     return parser
 
 
@@ -141,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(transcript_text(_client().meeting(args.id)))
             case "search":
                 print("\n".join(hit_line(h) for h in _client().search(args.query)) or "no matches")
+            case "delete":
+                _client().delete(args.id)
+                print(f'deleted "{args.id}"')
     except (ServiceUnavailable, ServiceError) as error:
         print(error, file=sys.stderr)
         return 1

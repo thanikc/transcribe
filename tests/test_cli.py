@@ -108,3 +108,17 @@ def test_step_without_a_fraction_yet() -> None:
         "(status: transcribing; Transcribing system audio, step 2 of 3)"
     )
     assert meeting_line(_transcribing(None)).endswith("  transcribing")
+
+
+def test_delete(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
+    recorder.start("Weekly", "mic")
+    recorder.stop()
+    assert cli.main(["delete", "2026-11-11-1430-weekly"]) == 0
+    assert 'deleted "2026-11-11-1430-weekly"' in capsys.readouterr().out
+    assert recorder.store.list() == []
+
+
+def test_delete_refusal_is_an_error(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
+    recorder.start("Live", "mic")
+    assert cli.main(["delete", "2026-11-11-1430-live"]) == 1
+    assert "stop the recording first" in capsys.readouterr().err

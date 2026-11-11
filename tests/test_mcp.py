@@ -97,3 +97,11 @@ def test_service_not_running() -> None:
     server = build_server(lambda: ServiceClient(httpx.Client(base_url="http://127.0.0.1:1")))
     text = asyncio.run(server.call_tool("list_meetings", {})).content[0].text
     assert "recorder service not running" in text and "transcribe serve" in text
+
+
+def test_delete_meeting(rig: Rig) -> None:
+    rig.call("start_recording", title="Weekly", mode="mic")
+    rig.call("stop_recording")
+    assert rig.call("delete_meeting", meeting_id="2026-11-11-1430-weekly") == 'Deleted "2026-11-11-1430-weekly".'
+    assert rig.call("list_meetings") == "no meetings yet"
+    assert rig.call("delete_meeting", meeting_id="nope") == 'no meeting "nope" exists'

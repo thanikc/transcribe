@@ -19,6 +19,7 @@ from transcribe.domain import (
     DomainError,
     InvalidTransition,
     Meeting,
+    MeetingBusy,
     MeetingNotFound,
     NoRecording,
     RecordingInProgress,
@@ -42,6 +43,7 @@ _STATUS_CODES: tuple[tuple[type[DomainError], int], ...] = (
     (RecordingInProgress, 409),
     (NoRecording, 409),
     (InvalidTransition, 409),
+    (MeetingBusy, 409),
     (TranscriptNotReady, 409),
     (CaptureError, 503),
 )
@@ -117,6 +119,10 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
     async def meeting(request: Request) -> Response:
         return JSONResponse(detail(request.path_params["id"]))
 
+    async def delete(request: Request) -> Response:
+        recorder.delete(request.path_params["id"])
+        return JSONResponse({"deleted": request.path_params["id"]})
+
     async def audio(request: Request) -> Response:
         # track_path validates both the meeting id and the track name.
         path = recorder.store.track_path(request.path_params["id"], request.path_params["track"])
@@ -157,7 +163,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
 
     async def same_origin_json(request: Request, call_next):
         """Keep other websites from driving the API through the browser."""
-        if request.method == "POST":
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
             if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
                 return _error("Content-Type must be application/json", 415)
             origin = request.headers.get("origin")
@@ -172,6 +178,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         Route("/api/recordings/stop", stop, methods=["POST"]),
         Route("/api/meetings", meetings),
         Route("/api/meetings/{id}", meeting),
+        Route("/api/meetings/{id}", delete, methods=["DELETE"]),
         Route("/api/meetings/{id}/audio/{track}", audio),
         Route("/api/meetings/{id}/transcribe", transcribe, methods=["POST"]),
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),

@@ -12,6 +12,7 @@ from transcribe.domain import (
     InvalidChoice,
     InvalidTransition,
     Meeting,
+    MeetingBusy,
     MeetingNotFound,
     NoRecording,
     RecordingInProgress,
@@ -420,3 +421,38 @@ def test_no_progress_outside_a_running_job(rig: Rig) -> None:
     rig.run_jobs()
     assert rig.store.get(meeting.id).status == Status.FAILED
     assert rig.recorder.progress(meeting.id) is None
+
+
+def test_delete_removes_finished_meeting_from_list_and_search(rig: Rig) -> None:
+    rig.whisper.by_track = {"mic": [Segment(0, 1, "Budget review")]}
+    meeting = rig.transcribed(rig.record())
+    rig.recorder.delete(meeting.id)
+    assert rig.store.list() == []
+    assert not (rig.store.data_dir / meeting.id).exists()
+    assert rig.recorder.search("budget") == []
+
+
+def test_delete_failed_meeting(rig: Rig) -> None:
+    rig.whisper.error = RuntimeError("boom")
+    meeting = rig.transcribed(rig.record())
+    rig.recorder.delete(meeting.id)
+    assert rig.store.list() == []
+
+
+def test_delete_refuses_a_recording_meeting(rig: Rig) -> None:
+    meeting = rig.recorder.start("Live", "mic")
+    with pytest.raises(MeetingBusy, match="stop the recording first"):
+        rig.recorder.delete(meeting.id)
+    assert rig.store.get(meeting.id).status == Status.RECORDING
+
+
+def test_delete_refuses_a_transcribing_meeting(rig: Rig) -> None:
+    meeting = rig.record()
+    with pytest.raises(MeetingBusy, match="wait until transcription finishes"):
+        rig.recorder.delete(meeting.id)
+    assert rig.store.get(meeting.id).status == Status.TRANSCRIBING
+
+
+def test_delete_unknown_meeting(rig: Rig) -> None:
+    with pytest.raises(MeetingNotFound):
+        rig.recorder.delete("nope")

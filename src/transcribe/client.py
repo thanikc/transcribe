@@ -51,6 +51,10 @@ class ServiceClient:
     def meeting(self, meeting_id: str) -> dict:
         return self._call("GET", f"/api/meetings/{quote(meeting_id, safe='')}")
 
+    def delete(self, meeting_id: str) -> None:
+        # The service insists on a JSON body for every request that changes state.
+        self._call("DELETE", f"/api/meetings/{quote(meeting_id, safe='')}", json={})
+
     def transcribe(self, meeting_id: str, language: str | None = None) -> dict:
         body = {"language": language} if language else {}
         return self._post(f"/api/meetings/{quote(meeting_id, safe='')}/transcribe", body)["meeting"]

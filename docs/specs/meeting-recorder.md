@@ -36,6 +36,7 @@ Invariants:
 - Diarization failure never fails a meeting: the transcript is kept with track-level labels and a warning on the meeting.
 - Speaker names belong to one meeting. Transcribing again clears them, because the new diarization may number speakers differently. Giving two labels the same name is allowed (it merges them on display).
 - Status changes go in one direction (`recording → transcribing → transcribed|failed`). A failed meeting keeps its audio so it can be transcribed again.
+- Deleting a meeting removes its whole folder (audio, transcript, metadata) for good. A meeting that is `recording` or `transcribing` can't be deleted.
 
 ### Ports (I/O at the edge, injected)
 
@@ -64,7 +65,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - **Recorder service** (`transcribe serve`): Starlette + uvicorn, which are already dependencies of `mcp`. JSON API:
   `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language}`,
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
-  `GET /api/meetings/{id}/audio/{track}` (WAV), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `GET /api/search?q=`.
+  `GET /api/meetings/{id}/audio/{track}` (WAV), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`.
   `stop` returns at once. Transcription runs in a background thread, and the status is shown in the meeting listings.
   While it runs, each meeting's JSON carries `progress`: `{step, step_number, steps, fraction, elapsed}` (null otherwise).
   The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null
@@ -72,15 +73,15 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - **Web UI** (`GET /`): one static HTML page with vanilla JS, which polls `/api/status` every second.
   - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
   - A meetings list: newest first, with status badges that update while transcribing.
-  - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track, the language (forced or detected), and a "Transcribe again" button with a language picker, for a failed meeting or one where auto-detection got the language wrong.
+  - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track, the language (forced or detected), and a "Transcribe again" button with a language picker, for a failed meeting or one where auto-detection got the language wrong. A "Delete meeting" button (transcribed or failed meetings only) asks for confirmation first.
   - Fonts: a system font stack that includes Thai faces (`Leelawadee UI`, `Noto Sans Thai`) and `<meta charset="utf-8">`.
     When you press Stop, the page opens the new meeting showing the current step, "step n of N", a progress bar (animated without a percentage while the model loads) and the time spent on the step, and swaps in the transcript when it's ready (by polling). The list badge shows the percentage. The status line reads "Starting…"/"Stopping…" while the devices open or close. The transcript is shown only after recording, never live.
-- **MCP shim** (`transcribe mcp`, stdio). Tools: `start_recording(title, mode, language="auto")`, `stop_recording()`, `list_meetings()`, `get_transcript(meeting_id)`, `search_transcripts(query)`, `rename_speaker(meeting_id, speaker, name)` (so Claude can name speakers it works out from context, e.g. "thanks, Somchai"), each forwarded to the service.
-- **CLI** (`transcribe`): `serve`, `mcp`, `record [--title] [--mode] [--language auto|th|en]` (starts a recording through the service; Ctrl+C stops it), `list`, `show <id>`, `search <query>`.
+- **MCP shim** (`transcribe mcp`, stdio). Tools: `start_recording(title, mode, language="auto")`, `stop_recording()`, `list_meetings()`, `get_transcript(meeting_id)`, `search_transcripts(query)`, `rename_speaker(meeting_id, speaker, name)` (so Claude can name speakers it works out from context, e.g. "thanks, Somchai"), `delete_meeting(meeting_id)` (its description tells Claude to use it only when asked), each forwarded to the service.
+- **CLI** (`transcribe`): `serve`, `mcp`, `record [--title] [--mode] [--language auto|th|en]` (starts a recording through the service; Ctrl+C stops it), `list`, `show <id>`, `search <query>`, `delete <id>`.
 
 ### Security (trust boundary: the HTTP API)
 - The service binds to `127.0.0.1` only. There is no auth, because it's a single-user local machine.
-- Requests that change state (`POST`) must be `Content-Type: application/json` and come with no `Origin` header or one that matches the service's own. Without this, any website open in your browser could start a recording of you.
+- Requests that change state (`POST`, `DELETE`) must be `Content-Type: application/json` and come with no `Origin` header or one that matches the service's own. Without this, any website open in your browser could start a recording of you.
 - `{id}` and `{track}` are validated against known meetings and tracks (no path traversal).
 
 ### Config (env vars)

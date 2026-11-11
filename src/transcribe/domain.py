@@ -36,6 +36,10 @@ class MeetingNotFound(DomainError):
         super().__init__(f'no meeting "{meeting_id}" exists')
 
 
+class MeetingBusy(DomainError):
+    """A meeting that is still recording or transcribing can't be deleted."""
+
+
 class TranscriptNotReady(DomainError):
     def __init__(self, meeting_id: str, status: str) -> None:
         super().__init__(f'the transcript of "{meeting_id}" is not ready yet (status: {status})')

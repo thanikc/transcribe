@@ -79,6 +79,18 @@ def build_server(client_factory: Callable[[], ServiceClient]) -> MCPServer:
 
         return forward(rename)
 
+    @server.tool()
+    def delete_meeting(meeting_id: str) -> str:
+        """Permanently delete a meeting: its audio, transcript and metadata. This cannot be undone,
+        so only call it when the user explicitly asks to delete that meeting. A meeting that is
+        still recording or transcribing can't be deleted."""
+
+        def delete(c: ServiceClient) -> str:
+            c.delete(meeting_id)
+            return f'Deleted "{meeting_id}".'
+
+        return forward(delete)
+
     return server
 
 

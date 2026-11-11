@@ -15,6 +15,7 @@ from transcribe.domain import (
     InvalidChoice,
     InvalidTransition,
     Meeting,
+    MeetingBusy,
     NoRecording,
     RecordingInProgress,
     SearchHit,
@@ -210,6 +211,16 @@ class Recorder:
             meeting = replace(meeting, speaker_names=names)
             self.store.save(meeting)
             return meeting
+
+    def delete(self, meeting_id: str) -> None:
+        # Locked so a recording or transcription can't start on it mid-delete.
+        with self._lock:
+            status = self.store.get(meeting_id).status
+            if status == Status.RECORDING:
+                raise MeetingBusy(f'"{meeting_id}" is still recording; stop the recording first')
+            if status == Status.TRANSCRIBING:
+                raise MeetingBusy(f'"{meeting_id}" is being transcribed; wait until transcription finishes')
+            self.store.delete(meeting_id)
 
     def search(self, query: str) -> list[SearchHit]:
         transcripts = [
