@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -12,6 +13,12 @@ from transcribe.domain import Segment
 
 log = logging.getLogger(__name__)
 
+# The models the Windows installer offers, with their download size.
+MODEL_SIZES = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
+
+# The files faster_whisper.download_model fetches.
+_WHISPER_FILES = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
+
 
 class WhisperSpeechToText:
     def __init__(self, model: str) -> None:
@@ -19,6 +26,18 @@ class WhisperSpeechToText:
         self._model = None
         self._device = ""
         self._lock = threading.Lock()
+
+    def download(self) -> None:
+        """Fetch the model into the Hugging Face cache, where WhisperModel(name) finds it. Skips files it has."""
+        if os.path.isdir(self._name):
+            return
+        import huggingface_hub
+        from faster_whisper.utils import _MODELS
+
+        # Not faster_whisper.download_model: it hides the progress bars, and this is a 3 GB download.
+        # Same repo and files as download_model, so WhisperModel(name) finds them in the cache.
+        repo_id = self._name if "/" in self._name else _MODELS[self._name]
+        huggingface_hub.snapshot_download(repo_id, allow_patterns=_WHISPER_FILES)
 
     def _load(self):
         with self._lock:

@@ -14,7 +14,9 @@ uv run transcribe serve --fake --port 8799   # service with fake capture/STT, fo
 uv run transcribe --help
 ```
 
-The real capture (soundcard/WASAPI loopback), Whisper and sherpa-onnx can only be verified on Windows.
+The real capture (soundcard/WASAPI loopback), Whisper, sherpa-onnx, the tray icon and the installer can only be
+verified on Windows. Tray tests use a fake `pystray` and `winreg`. The installer spec is in
+`docs/specs/windows-installer.md`.
 
 ## Architecture
 
@@ -28,8 +30,12 @@ src/transcribe/
   web.py         Starlette JSON API + static/index.html; origin/content-type guard on POST/DELETE, trusted hosts
   client.py      HTTP client + text formatting shared by the MCP shim and the CLI
   mcp_server.py  stdio MCP tools -> client
-  cli.py         serve | mcp | record | list | show | search | delete
+  cli.py         serve | mcp | record | list | show | search | delete | download-models
+  desktop.py     pure tray logic: icon state/image, Claude Desktop config merge, single-instance check
+  tray.py        Windows tray app (pystray, winreg), runs the service in-process; `transcribe-tray` gui-script
   devfakes.py    fakes for `serve --fake`
+installer/       Inno Setup script + the .cmd steps it runs (uv sync, download-models)
+.github/workflows/windows-installer.yml   builds Transcribe-Setup-<version>.exe on v* tags
 ```
 
 - `transcribe serve` is the only process that captures audio. Everything else talks to it over HTTP.

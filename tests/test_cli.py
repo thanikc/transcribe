@@ -122,3 +122,35 @@ def test_delete_refusal_is_an_error(recorder: Recorder, capsys: pytest.CaptureFi
     recorder.start("Live", "mic")
     assert cli.main(["delete", "2026-11-11-1430-live"]) == 1
     assert "stop the recording first" in capsys.readouterr().err
+
+
+def test_download_models_fetches_whisper_and_speaker_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from transcribe.diarize import SherpaDiarizer
+    from transcribe.stt import WhisperSpeechToText
+
+    fetched = []
+    monkeypatch.setenv("TRANSCRIBE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TRANSCRIBE_MODEL", "medium")
+    monkeypatch.setattr(WhisperSpeechToText, "download", lambda self: fetched.append(self._name))
+    monkeypatch.setattr(SherpaDiarizer, "ensure_models", lambda self: fetched.append(self._dir))
+    assert cli.main(["download-models"]) == 0
+    assert fetched == ["medium", tmp_path / ".models"]
+    out = capsys.readouterr().out
+    assert "Downloading the Whisper model medium…" in out and "Models ready" in out
+
+    monkeypatch.setenv("TRANSCRIBE_MODEL", "large-v3-turbo")
+    assert cli.main(["download-models"]) == 0
+    assert "Downloading the Whisper model large-v3-turbo (about 1.6 GB)…" in capsys.readouterr().out
+
+
+def test_download_models_failure_is_an_error(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from transcribe.stt import WhisperSpeechToText
+
+    def offline(self):
+        raise OSError("connection reset")
+
+    monkeypatch.setattr(WhisperSpeechToText, "download", offline)
+    assert cli.main(["download-models"]) == 1
+    assert "model download failed: connection reset" in capsys.readouterr().err

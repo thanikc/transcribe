@@ -88,3 +88,74 @@ def test_diarizer_reports_processed_chunks(tmp_path):
     turns = diarizer.diarize(wav, seen.append)
     assert [t.speaker for t in turns] == ["spk0"]
     assert seen == [0.25, 1.0]
+
+
+def test_whisper_download_fetches_the_named_model_once_into_the_shared_cache(monkeypatch, tmp_path):
+    from types import ModuleType
+
+    from transcribe.stt import WhisperSpeechToText
+
+    fetched = []
+    hub = ModuleType("huggingface_hub")
+    hub.snapshot_download = lambda repo_id, allow_patterns: fetched.append((repo_id, allow_patterns))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    WhisperSpeechToText("large-v3").download()
+    WhisperSpeechToText("me/my-whisper").download()
+    WhisperSpeechToText(str(tmp_path)).download()  # a local model dir needs no download
+    files = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
+    assert fetched == [("Systran/faster-whisper-large-v3", files), ("me/my-whisper", files)]
+
+
+def test_whisper_download_matches_what_faster_whisper_loads():
+    import inspect
+
+    from faster_whisper import utils
+
+    from transcribe import stt
+
+    # If faster-whisper changes which files it fetches, the installer's download would miss some.
+    for pattern in stt._WHISPER_FILES:
+        assert f'"{pattern}"' in inspect.getsource(utils.download_model)
+
+
+def test_speaker_models_download_once_and_unpack(monkeypatch, tmp_path):
+    import io
+    import tarfile
+
+    from transcribe import diarize
+
+    def fake_download(url, dest):
+        if url == diarize.SEGMENTATION_URL:
+            with tarfile.open(dest, "w:bz2") as tar:
+                info = tarfile.TarInfo("sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
+                info.size = 4
+                tar.addfile(info, io.BytesIO(b"onnx"))
+        else:
+            dest.write_bytes(b"emb")
+
+    monkeypatch.setattr(diarize, "_download", fake_download)
+    segmentation, embedding = diarize.SherpaDiarizer(tmp_path / ".models").ensure_models()
+    assert segmentation.read_bytes() == b"onnx" and embedding.read_bytes() == b"emb"
+    assert sorted(p.name for p in (tmp_path / ".models").iterdir()) == sorted(
+        ["sherpa-onnx-pyannote-segmentation-3-0", diarize.EMBEDDING_FILE]
+    )
+
+    def no_network(url, dest):
+        raise AssertionError("downloaded again")
+
+    monkeypatch.setattr(diarize, "_download", no_network)
+    assert diarize.SherpaDiarizer(tmp_path / ".models").ensure_models() == (segmentation, embedding)
+
+
+def test_the_installers_model_choices_are_models_faster_whisper_can_download():
+    from pathlib import Path
+
+    from faster_whisper.utils import _MODELS
+
+    from transcribe.stt import MODEL_SIZES
+
+    installer = (Path(__file__).parent.parent / "installer" / "transcribe.iss").read_text(encoding="utf-8")
+    assert set(MODEL_SIZES) == {"large-v3", "large-v3-turbo"}
+    for name in MODEL_SIZES:
+        assert name in _MODELS
+        assert f"'{name}'" in installer
