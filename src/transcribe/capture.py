@@ -66,7 +66,11 @@ class AudioFileConverter:
         # Planar, channels kept: averaged here, since FFmpeg's downmix adds them at -3 dB and can clip.
         resampler = av.AudioResampler(format="fltp", rate=SAMPLE_RATE)
         samples = 0
-        with av.open(str(source)) as container, Mp3Writer(dest) as mp3:
+        try:
+            container = av.open(str(source))
+        except av.error.FFmpegError as e:
+            raise ValueError(e.strerror) from e  # its str() names the upload's temp file
+        with container, Mp3Writer(dest) as mp3:
             if not container.streams.audio:
                 raise ValueError("it has no sound")
 

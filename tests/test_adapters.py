@@ -443,5 +443,6 @@ def test_converter_refuses_a_file_that_is_not_audio(tmp_path):
     from transcribe.capture import AudioFileConverter
 
     (tmp_path / "notes.txt").write_text("not audio", encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError) as refused:
         AudioFileConverter().convert(tmp_path / "notes.txt", tmp_path / "file.mp3")
+    assert str(refused.value) == "Invalid data found when processing input"  # no server-side temp path
