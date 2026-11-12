@@ -54,6 +54,7 @@ Source: "..\pyproject.toml"; DestDir: "{app}\app"
 Source: "..\uv.lock"; DestDir: "{app}\app"
 Source: "..\.python-version"; DestDir: "{app}\app"
 Source: "..\README.md"; DestDir: "{app}\app"
+Source: "..\LICENSE"; DestDir: "{app}\app"
 Source: "..\src\*"; DestDir: "{app}\app\src"; Excludes: "__pycache__,*.pyc"; Flags: recursesubdirs
 ; The installed version, packaged with the app (transcribe/VERSION); the workflow writes it.
 Source: "..\build\VERSION"; DestDir: "{app}\app\src\transcribe"
