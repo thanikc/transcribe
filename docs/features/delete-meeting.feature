@@ -30,7 +30,7 @@ Feature: Delete a meeting
 
   Scenario: Delete from the web page asks first
     Given I am viewing a transcribed meeting
-    When I press Delete
+    When I choose "Delete meeting" from the meeting's Actions menu
     Then the page asks me to confirm, naming the meeting
     And only after I confirm is it deleted and the page goes back to the list
 

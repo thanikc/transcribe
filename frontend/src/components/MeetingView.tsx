@@ -10,8 +10,8 @@ import {
   TRACK_LABEL,
 } from "../utils";
 import { AudioBar } from "./AudioBar";
+import { MeetingActions } from "./MeetingActions";
 import { ProgressBox } from "./ProgressBox";
-import { SecondaryActionsDrawer } from "./SecondaryActionsDrawer";
 import { StatusBadge } from "./StatusBadge";
 import { TranscriptList } from "./TranscriptList";
 import { TranscriptToolbar } from "./TranscriptToolbar";
@@ -55,6 +55,7 @@ export function MeetingView({
   );
 
   const sectionRef = useRef<HTMLElement>(null);
+  const actionsRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     setActiveSpeaker(null);
@@ -193,6 +194,21 @@ export function MeetingView({
             </button>
             <StatusBadge status={m.status} />
           </h3>
+          {m.status !== "recording" && (
+            <MeetingActions
+              detailsRef={actionsRef}
+              meeting={m}
+              models={models}
+              onRetranscribed={async () => {
+                await onRefreshMeeting();
+                await onMeetingsChanged();
+              }}
+              onDeleted={async () => {
+                await onMeetingsChanged();
+                onClearSelection();
+              }}
+            />
+          )}
         </div>
 
         <dl className="meta">
@@ -211,8 +227,21 @@ export function MeetingView({
         ))}
 
         {m.status === "failed" && (
-          <div className="err" role="alert">
-            {"Transcription failed: " + (m.error || "unknown error")}
+          <div className="err failed-box" role="alert">
+            <span>
+              {"Transcription failed: " + (m.error || "unknown error")}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                // keep the document's outside-click handler from closing it again
+                e.stopPropagation();
+                if (actionsRef.current) actionsRef.current.open = true;
+                actionsRef.current?.querySelector("select")?.focus();
+              }}
+            >
+              Transcribe again…
+            </button>
           </div>
         )}
 
@@ -281,21 +310,6 @@ export function MeetingView({
               </>
             )}
           </>
-        )}
-
-        {m.status !== "recording" && (
-          <SecondaryActionsDrawer
-            meeting={m}
-            models={models}
-            onRetranscribed={async () => {
-              await onRefreshMeeting();
-              await onMeetingsChanged();
-            }}
-            onDeleted={async () => {
-              await onMeetingsChanged();
-              onClearSelection();
-            }}
-          />
         )}
 
         {m.status !== "recording" && (

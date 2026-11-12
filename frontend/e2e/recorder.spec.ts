@@ -82,7 +82,7 @@ test.describe("Meetings Recorder E2E", () => {
     );
 
     // 8. Delete the meeting
-    await page.locator("details.secondary-drawer summary").click();
+    await page.locator("details.meeting-actions summary").click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("button.danger", { hasText: "Delete meeting" }).click();
     await expect(page.locator("#no-meetings")).toBeVisible();

@@ -273,8 +273,16 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Re-transcribe a failed meeting from the web page
     Given a meeting with status "failed"
-    When I open it and press "Transcribe again"
+    When I open it and press "Transcribe again…" beside the failure message
+    Then the meeting's Actions menu opens
+    When I press "Transcribe again" in it
     Then its status changes to "transcribing"
+
+  Scenario: Meeting actions are in the header
+    Given I am viewing a transcribed, failed or transcribing meeting
+    Then an Actions menu beside its title offers "Transcribe again" with a language and speech model picker
+    And "Delete meeting" only for a transcribed or failed meeting
+    And a meeting that is still recording has no Actions menu
 
   Scenario: Another website cannot start a recording
     When a request to start a recording arrives with Origin "https://evil.example"
