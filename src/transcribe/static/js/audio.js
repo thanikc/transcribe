@@ -1,4 +1,4 @@
-// Audio players for a meeting's tracks, and the choice of output device.
+// Docked audio playback bar for a meeting's tracks, and the choice of output device.
 
 import { $, el, TRACK_LABEL } from "./util.js";
 
@@ -10,12 +10,13 @@ function saveSink(v) { try { localStorage.setItem(SINK_KEY, v); } catch (e) { /*
 
 export function renderTracks(id, names, key) {
   const tracks = el("div", { class: "tracks", id: "tracks", "data-key": key });
-  if (canPickOutput && names.length) tracks.append(renderOutputPicker());
   for (const t of names) {
     const lid = `audio-${t}`;
-    tracks.append(el("div", null, el("label", { for: lid, text: TRACK_LABEL[t] || t }),
+    tracks.append(el("div", { class: "track-player" },
+      el("label", { for: lid, text: TRACK_LABEL[t] || t }),
       el("audio", { id: lid, controls: "", preload: "none", src: `/api/meetings/${encodeURIComponent(id)}/audio/${encodeURIComponent(t)}` })));
   }
+  if (canPickOutput && names.length) tracks.append(renderOutputPicker());
   applySink(tracks, savedSink());
   return tracks;
 }
@@ -40,8 +41,12 @@ function renderOutputPicker() {
     fillOutputs(sel, names);
   });
   fillOutputs(sel, names);
-  return el("div", null, el("label", { for: "audio-output", text: "Play through" }),
-    el("div", { class: "row" }, el("div", null, sel), names), errBox);
+  return el("details", { class: "popover output-popover" },
+    el("summary", { title: "Choose audio output device", text: "Play through" }),
+    el("div", { class: "popover-body" },
+      el("label", { for: "audio-output", text: "Play through" }),
+      el("div", { class: "row" }, el("div", null, sel), names),
+      errBox));
 }
 
 async function fillOutputs(sel, names) {

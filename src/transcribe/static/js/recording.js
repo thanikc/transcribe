@@ -1,4 +1,4 @@
-// The recording panel: start/stop, the status line and the status poll.
+// The recording dock: start/stop, the status badge, inline level meters, and the status poll.
 
 import { $, api, el, mmss, TRACK_LABEL } from "./util.js";
 import { state } from "./state.js";
@@ -35,15 +35,17 @@ function renderMeters(levels) {
   const box = $("meters");
   if (!levels) { box.hidden = true; box.replaceChildren(); heard = {}; return; }
   const now = performance.now();
-  const rows = [];
+  const items = [];
   for (const [track, level] of Object.entries(levels)) {
     if (!(track in heard) || level > QUIET) heard[track] = now;
     const silent = now - heard[track] > SILENT_AFTER_MS;
     const bar = el("div", { class: "bar", "aria-hidden": "true" }, el("span", { style: `width:${Math.round(fill(level) * 100)}%` }));
-    rows.push(el("span", { text: TRACK_LABEL[track] || track }), bar,
-      el("span", { class: silent ? "quiet" : "muted", text: silent ? "no sound" : "" }));
+    items.push(el("span", { class: "meter-item" },
+      el("span", { text: TRACK_LABEL[track] || track }),
+      bar,
+      el("span", { class: silent ? "quiet" : "muted", text: silent ? "no sound" : "" })));
   }
-  box.replaceChildren(...rows);
+  box.replaceChildren(...items);
   box.hidden = false;
 }
 
@@ -88,6 +90,17 @@ async function toggleRecording() {
 
 export function initRecording() {
   $("toggle").addEventListener("click", toggleRecording);
+  // Close top-bar popovers on Escape or outside click so they never obscure the reading canvas.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      for (const d of document.querySelectorAll("details.popover[open]")) d.open = false;
+    }
+  });
+  document.addEventListener("click", (e) => {
+    for (const d of document.querySelectorAll("details.popover[open]")) {
+      if (!d.contains(e.target)) d.open = false;
+    }
+  });
   // A hidden tab asks the service nothing: during an hour-long call that is thousands of requests,
   // each list one reading every meeting from disk. Showing the tab again refreshes at once.
   setInterval(() => { if (!document.hidden) pollStatus(); }, 1000);

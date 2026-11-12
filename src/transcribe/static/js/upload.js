@@ -20,6 +20,7 @@ async function importFile() {
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error((data && data.error) || `Import failed (${res.status})`);
     $("import-file").value = "";
+    if ($("import-drawer")) $("import-drawer").open = false;
     await loadMeetings();
     openMeeting(data.meeting.id);
   } catch (e) {

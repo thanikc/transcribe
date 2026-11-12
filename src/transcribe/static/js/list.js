@@ -14,7 +14,7 @@ export function renderList() {
   for (const m of state.meetings) {
     const when = new Date(m.started_at).toLocaleString();
     const b = el("button", { type: "button", class: "item", "data-id": m.id, onclick: () => openMeeting(m.id) },
-      el("div", { class: "t" }, document.createTextNode(m.title || m.id), badge(m.status, m.progress)),
+      el("div", { class: "t" }, el("span", { text: m.title || m.id }), badge(m.status, m.progress)),
       el("div", { class: "m", text: `${when} · ${mmss(m.duration)} · ${fileSize(m.audio_bytes)}` }));
     if (m.id === state.currentId) b.setAttribute("aria-current", "true");
     ul.append(el("li", null, b));
