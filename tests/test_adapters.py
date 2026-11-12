@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -501,3 +502,22 @@ def test_capture_reports_a_device_list_it_cannot_read(monkeypatch):
     monkeypatch.setitem(sys.modules, "soundcard", None)
     with pytest.raises(CaptureError, match="could not list the audio devices"):
         SoundcardCapture().devices()
+
+
+def test_capture_joins_com_on_each_thread_that_lists_or_opens_devices(monkeypatch):
+    from transcribe import capture
+
+    _fake_soundcard(monkeypatch)
+    joined = []
+    monkeypatch.setattr(capture, "_join_com", lambda: joined.append(threading.get_ident()))
+    seen = []
+
+    def use() -> None:
+        capture.SoundcardCapture().devices()
+        capture._open_device("system", None)
+        seen.append(threading.get_ident())
+
+    worker = threading.Thread(target=use)
+    worker.start()
+    worker.join()
+    assert joined == seen * 2  # soundcard set COM up only on whichever thread imported it

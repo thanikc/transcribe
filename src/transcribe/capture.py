@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
 
@@ -107,7 +108,19 @@ class _Session:
             raise self._errors[0]
 
 
+def _join_com() -> None:
+    """Joins the calling thread to COM's multithreaded apartment. soundcard initialises COM only on the thread
+    that imports it, so a device listed on a web worker thread, or opened in a recording thread, fails with
+    CO_E_NOTINITIALIZED (0x800401f0) unless its own thread has joined. Joining twice is harmless; a thread
+    already in a single-threaded apartment (RPC_E_CHANGED_MODE) can use COM as it is."""
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.ole32.CoInitializeEx(None, 0)  # COINIT_MULTITHREADED; left joined for the thread's life
+
+
 def _open_device(track: str, device_id: str | None):
+    _join_com()
     import soundcard
 
     if track == "mic":
@@ -142,6 +155,7 @@ def _record(
 class SoundcardCapture:
     def devices(self) -> dict[str, list[AudioDevice]]:
         try:
+            _join_com()
             import soundcard
 
             mic, speaker = soundcard.default_microphone().id, soundcard.default_speaker().id
