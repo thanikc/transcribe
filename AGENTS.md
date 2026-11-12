@@ -35,7 +35,7 @@ src/transcribe/
   tray.py        Windows tray app (pystray, winreg), runs the service in-process; `transcribe-tray` gui-script
   devfakes.py    fakes for `serve --fake`
 installer/       Inno Setup script + the .cmd steps it runs (uv sync, download-models)
-.github/workflows/windows-installer.yml   builds Transcribe-Setup-<version>.exe on v* tags
+.github/workflows/windows-installer.yml   builds Transcribe-Setup-<version>.exe; the version is the latest git tag (1.2.3 or v1.2.3)
 ```
 
 - `transcribe serve` is the only process that captures audio. Everything else talks to it over HTTP.
