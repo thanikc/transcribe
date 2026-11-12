@@ -85,14 +85,16 @@ procedure InitializeWizard;
 begin
   ModelPage := CreateInputOptionPage(wpSelectTasks,
     'Speech model', 'Which Whisper model should Transcribe use?',
-    'large-v3 is the most accurate and handles Thai best. It is a 3 GB download, and on a computer without ' +
-    'an NVIDIA graphics card it takes about 1-2 times the meeting length to transcribe.' + #13#10#13#10 +
-    'large-v3-turbo is half the download and several times faster, so a one-hour meeting is ready much sooner. ' +
-    'It makes a few more mistakes, and noticeably more in Thai than in English.' + #13#10#13#10 +
-    'You can switch later by running this installer again.',
+    'large-v3 is the most accurate and handles Thai best. It is a 3 GB download and needs about 4 GB of free ' +
+    'memory while transcribing. On a computer without an NVIDIA graphics card it takes about 1-2 times the ' +
+    'meeting length to transcribe.' + #13#10#13#10 +
+    'large-v3-turbo is half the download, needs about 2 GB of free memory and is several times faster, so a ' +
+    'one-hour meeting is ready much sooner. It makes a few more mistakes, and noticeably more in Thai than ' +
+    'in English. Choose it on a computer with 8 GB of memory, or 16 GB that is usually busy.' + #13#10#13#10 +
+    'You can switch later on the Transcribe page, for each meeting, or by running this installer again.',
     True, False);
-  ModelPage.Add('large-v3: most accurate, best for Thai (about 3 GB, slower)');
-  ModelPage.Add('large-v3-turbo: several times faster, a little less accurate (about 1.6 GB)');
+  ModelPage.Add('large-v3: most accurate, best for Thai (3 GB download, about 4 GB of memory, slower)');
+  ModelPage.Add('large-v3-turbo: several times faster, a little less accurate (1.6 GB download, about 2 GB of memory)');
   if GetPreviousData('Model', 'large-v3') = 'large-v3-turbo' then
     ModelPage.SelectedValueIndex := 1
   else

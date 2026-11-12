@@ -14,10 +14,10 @@ transcripts from Claude Desktop.
 1. Download `Transcribe-Setup-<version>.exe` from the [Releases page](https://github.com/thanikc/transcribe/releases).
 2. Run it. If Windows says "Windows protected your PC", click **More info**, then **Run anyway** (the installer isn't code-signed).
 3. Click through it. On the **Speech model** page, choose:
-   - **large-v3** (default): the most accurate, and best for Thai. It's a 3 GB download, and without an NVIDIA
-     graphics card it takes about 1–2× the meeting length to transcribe.
-   - **large-v3-turbo**: half the download (1.6 GB) and several times faster. It makes a few more mistakes,
-     noticeably more in Thai than in English.
+   - **large-v3** (default): the most accurate, and best for Thai. It's a 3 GB download and needs about 4 GB of free memory while
+     transcribing. Without an NVIDIA graphics card it takes about 1–2× the meeting length to transcribe.
+   - **large-v3-turbo**: half the download (1.6 GB), about 2 GB of free memory, and several times faster. It makes
+     a few more mistakes, noticeably more in Thai than in English. Pick it on an 8 GB computer.
 
    To switch later, run the installer again and pick the other one.
 
