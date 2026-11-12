@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from transcribe.domain import (
+    FALLBACK_MODELS,
     LANGUAGES,
+    MODELS,
     MODES,
     DomainError,
     InvalidChoice,
@@ -37,6 +39,16 @@ class CaptureError(DomainError):
     """An audio device could not be opened."""
 
 
+class OutOfMemory(DomainError):
+    """The speech model did not fit in the memory that is free."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__(
+            f"not enough free memory for the {model} speech model. The recording is safe: "
+            "close other apps and press Transcribe again"
+        )
+
+
 class CaptureSession(Protocol):
     def stop(self) -> None:
         """Stop all tracks and close their audio files."""
@@ -53,9 +65,15 @@ ProgressCallback = Callable[[float], None]
 
 class SpeechToText(Protocol):
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: ProgressCallback
+        self, wav: Path, language: str | None, on_progress: ProgressCallback, model: str
     ) -> tuple[list[Segment], str]:
-        """Track audio + language (None = detect) -> (segments without speakers, detected language)."""
+        """Track audio + language (None = detect) -> (segments without speakers, detected language).
+
+        Raises OutOfMemory if `model` does not fit in memory.
+        """
+
+    def has_model(self, model: str) -> bool:
+        """Whether `model` is on this computer already, so using it needs no download."""
 
 
 class SpeakerDiarizer(Protocol):
@@ -76,6 +94,7 @@ class Recorder:
         diarizer: SpeakerDiarizer,
         clock: Callable[[], datetime] = datetime.now,
         run_in_background: Callable[[Callable[[], None]], None] = _in_thread,
+        default_model: str = "large-v3",
     ) -> None:
         self.store = store
         self.capture = capture
@@ -83,6 +102,7 @@ class Recorder:
         self.diarizer = diarizer
         self.clock = clock
         self.run_in_background = run_in_background
+        self.default_model = default_model
         self._lock = threading.Lock()
         self._active: tuple[Meeting, CaptureSession] | None = None
         # In memory only: a restart marks running jobs failed, so there is nothing to resume.
@@ -93,6 +113,26 @@ class Recorder:
     def _check_language(self, language: str) -> None:
         if language not in LANGUAGES:
             raise InvalidChoice(f'language must be one of {", ".join(LANGUAGES)}, not "{language}"')
+
+    def _model_names(self) -> list[str]:
+        # A default from outside the offered ones (TRANSCRIBE_MODEL=medium, or a path) stays choosable.
+        return list(dict.fromkeys([*MODELS, self.default_model]))
+
+    def _check_model(self, model: str) -> None:
+        if model not in self._model_names():
+            raise InvalidChoice(f'model must be one of {", ".join(self._model_names())}, not "{model}"')
+
+    def models(self) -> list[dict]:
+        """The speech models a meeting can be transcribed with."""
+        return [
+            {
+                "name": name,
+                "size": MODELS.get(name),
+                "downloaded": self.stt.has_model(name),
+                "default": name == self.default_model,
+            }
+            for name in self._model_names()
+        ]
 
     def status(self) -> dict:
         # No lock: start() holds _lock while devices open, and the page polls this every second.
@@ -140,17 +180,19 @@ class Recorder:
                     "fraction": min(max(fraction, 0.0), 1.0),
                 }
 
-    def start(self, title: str, mode: str, language: str = "auto") -> Meeting:
+    def start(self, title: str, mode: str, language: str = "auto", model: str | None = None) -> Meeting:
         if mode not in MODES:
             raise InvalidChoice(f'mode must be one of {", ".join(MODES)}, not "{mode}"')
         self._check_language(language)
+        model = model or self.default_model
+        self._check_model(model)
         with self._lock:
             if self._active is not None:
                 raise RecordingInProgress()
             now = self.clock()
             title = title.strip()
             meeting = Meeting(
-                meeting_id(title, now, self.store.ids()), title, mode, language, now, Status.RECORDING
+                meeting_id(title, now, self.store.ids()), title, mode, language, now, Status.RECORDING, model=model
             )
             self.store.create(meeting)
             try:
@@ -184,9 +226,11 @@ class Recorder:
         self.run_in_background(lambda: self._transcribe_job(meeting.id))
         return meeting
 
-    def transcribe(self, meeting_id: str, language: str | None = None) -> Meeting:
+    def transcribe(self, meeting_id: str, language: str | None = None, model: str | None = None) -> Meeting:
         if language is not None:
             self._check_language(language)
+        if model is not None:
+            self._check_model(model)
         # Locked so two simultaneous requests can't both start a job for the same meeting.
         with self._lock:
             meeting = self.store.get(meeting_id)
@@ -197,6 +241,7 @@ class Recorder:
             meeting = replace(
                 meeting,
                 language=language or meeting.language,
+                model=model or meeting.model,
                 speaker_names={},
                 warnings=[],
                 detected_languages={},
@@ -258,6 +303,7 @@ class Recorder:
 
     def _run_transcription(self, meeting: Meeting) -> None:
         language = None if meeting.language == "auto" else meeting.language
+        model = meeting.model or self.default_model  # meetings from before the choice existed have none
         detected: dict[str, str] = {}
         warnings: list[str] = []
         segments: dict[str, list[Segment]] = {}
@@ -268,7 +314,26 @@ class Recorder:
             self._begin_step(meeting.id, step.label, number, len(steps))
             wav = self.store.track_path(meeting.id, step.track)
             if step.kind == "transcribe":
-                segments[step.track], detected[step.track] = self.stt.transcribe(wav, language, report)
+                try:
+                    result = self.stt.transcribe(wav, language, report, model)
+                except OutOfMemory:
+                    fallback = FALLBACK_MODELS.get(model)
+                    if fallback is None:
+                        raise
+                    warnings.append(f"not enough free memory for {model}, so this was transcribed with {fallback}")
+                    # The rest of the meeting stays on the smaller model: the big one would only fail again.
+                    too_big, model = model, fallback
+                    self._begin_step(meeting.id, step.label, number, len(steps))
+                    try:
+                        result = self.stt.transcribe(wav, language, report, model)
+                    except OutOfMemory:
+                        raise
+                    except Exception as e:  # e.g. the smaller model could not be downloaded
+                        raise RuntimeError(
+                            f"not enough free memory for the {too_big} speech model, "
+                            f"and transcribing with {model} instead failed: {e}"
+                        ) from e
+                segments[step.track], detected[step.track] = result
                 continue
             try:
                 turns[step.track] = self.diarizer.diarize(wav, report)
@@ -279,4 +344,4 @@ class Recorder:
         }
         self.store.save_transcript(meeting.id, merge_transcript(labelled))
         done = transition(meeting, Status.TRANSCRIBED)
-        self.store.save(replace(done, detected_languages=detected, warnings=warnings))
+        self.store.save(replace(done, detected_languages=detected, warnings=warnings, model=model))

@@ -98,6 +98,8 @@ ul.list li + li { margin-top: 4px; }
         <option value="th">ไทย</option>
         <option value="en">English</option>
       </select>
+      <label for="model">Speech model</label>
+      <select id="model"></select>
       <p style="margin:14px 0 0"><button type="button" id="toggle" class="primary">Start recording</button></p>
       <p id="status" role="status" aria-live="polite">Not recording</p>
       <div id="rec-error" class="err" role="alert"></div>
@@ -135,11 +137,13 @@ const STATUS_LABEL = { recording: "recording", transcribing: "transcribing", tra
 const TRACK_LABEL = { mic: "Microphone", system: "System audio" };
 const LANG_LABEL = { th: "ไทย", en: "English", auto: "Auto" };
 const MODE_LABEL = { mic: "In person (mic)", "mic+system": "Online call (mic + system audio)" };
+const MODEL_NOTE = { "large-v3": "most accurate, slower", "large-v3-turbo": "faster, needs about half the memory" };
+const MODEL_KEY = "transcribe.model";
 
 const state = {
   recording: false, recId: null, recTitle: "", elapsed: 0, elapsedAt: 0,
   meetings: [], currentId: null, detail: null, busy: false,
-  viewTimer: null, viewToken: 0, detailAt: 0,
+  viewTimer: null, viewToken: 0, detailAt: 0, models: [],
 };
 
 function el(tag, props, ...kids) {
@@ -173,6 +177,29 @@ async function api(method, path, body) {
   if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
   return data;
 }
+
+/* ---------- speech models ---------- */
+function modelOptions() {
+  return state.models.map((m) => [m.name, m.name + (MODEL_NOTE[m.name] ? ` — ${MODEL_NOTE[m.name]}` : "")
+    + (m.downloaded ? "" : ` (downloads${m.size ? " " + m.size : ""} on first use)`)]);
+}
+function defaultModel() { return (state.models.find((m) => m.default) || {}).name || ""; }
+function fillSelect(sel, options, value) {
+  sel.replaceChildren(...options.map(([v, t]) => el("option", { value: v, text: t })));
+  sel.value = value;
+  if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+}
+async function loadModels() {
+  try { state.models = (await api("GET", "/api/models")).models; } catch (e) { return; }
+  let saved = "";
+  try { saved = localStorage.getItem(MODEL_KEY) || ""; } catch (e) { /* private window */ }
+  // The choice is remembered in this browser; without one, the service default (the installer's choice) applies.
+  fillSelect($("model"), modelOptions(), state.models.some((m) => m.name === saved) ? saved : defaultModel());
+  if (state.detail) renderMeeting();
+}
+$("model").addEventListener("change", () => {
+  try { localStorage.setItem(MODEL_KEY, $("model").value); } catch (e) { /* private window */ }
+});
 
 /* ---------- recording panel ---------- */
 function renderStatus() {
@@ -219,6 +246,7 @@ $("toggle").addEventListener("click", async () => {
     } else {
       const r = await api("POST", "/api/recordings/start", {
         title: $("title").value, mode: $("mode").value, language: $("language").value,
+        model: $("model").value || null,
       });
       state.recording = true; state.recId = r.meeting.id; state.recTitle = r.meeting.title || r.meeting.id;
       state.elapsed = 0; state.elapsedAt = performance.now();
@@ -329,7 +357,7 @@ function renderMeeting() {
   const dl = el("dl", { class: "meta" });
   for (const [k, v] of [["Started", new Date(m.started_at).toLocaleString()], ["Duration", m.duration != null ? mmss(m.duration) : "—"],
     ["Size", fileSize(m.audio_bytes)],
-    ["Mode", MODE_LABEL[m.mode] || m.mode], ["Language", lang]]) {
+    ["Mode", MODE_LABEL[m.mode] || m.mode], ["Language", lang], ...(m.model ? [["Speech model", m.model]] : [])]) {
     dl.append(el("dt", { text: k }), el("dd", { text: v }));
   }
   view.append(dl);
@@ -369,17 +397,20 @@ function renderMeeting() {
     const again = el("div", { class: "again" }, el("h4", { style: "margin:0 0 4px", text: "Transcribe again" }));
     const row = el("div", { class: "row" });
     const lsel = select("again-language", [["auto", "Auto"], ["th", "ไทย"], ["en", "English"]], m.language);
+    const msel = el("select", { id: "again-model" });
+    fillSelect(msel, modelOptions(), m.model || defaultModel());
     const btn = el("button", { type: "button", text: "Transcribe again" });
     btn.disabled = m.status === "transcribing";
     const errBox = el("div", { class: "err", role: "alert" });
     btn.addEventListener("click", async () => {
       btn.disabled = true; errBox.textContent = "";
       try {
-        await api("POST", `/api/meetings/${encodeURIComponent(id)}/transcribe`, { language: lsel.value });
+        await api("POST", `/api/meetings/${encodeURIComponent(id)}/transcribe`, { language: lsel.value, model: msel.value || null });
         await showMeeting(id); loadMeetings();
       } catch (e) { errBox.textContent = e.message; btn.disabled = false; }
     });
     row.append(el("div", null, el("label", { for: "again-language", text: "Language" }), lsel),
+      el("div", null, el("label", { for: "again-model", text: "Speech model" }), msel),
       el("div", { style: "flex:0 0 auto" }, btn));
     again.append(row, errBox);
     view.append(again);
@@ -496,8 +527,8 @@ function stepTimeText() {
   const p = state.detail && state.detail.meeting.progress;
   if (!p) return "";
   const t = mmss(p.elapsed + (performance.now() - state.detailAt) / 1000);
-  // Before the first percentage the model is loading; the first run downloads it (~3 GB for large-v3).
-  return p.fraction == null ? `${t} · preparing (the first run downloads the model, which can take several minutes)` : t;
+  // Before the first percentage the model is loading; its first use downloads it (1.6–3 GB).
+  return p.fraction == null ? `${t} · preparing (the first use of a model downloads it, which can take several minutes)` : t;
 }
 setInterval(() => { const t = $("step-time"); if (t) t.textContent = stepTimeText(); }, 500);
 
@@ -530,7 +561,7 @@ $("search-form").addEventListener("submit", async (ev) => {
 /* ---------- start ---------- */
 setInterval(pollStatus, 1000);
 setInterval(() => { if (state.recording) renderStatus(); }, 250);
-pollStatus(); loadMeetings(); routeFromHash();
+pollStatus(); loadMeetings(); loadModels(); routeFromHash();
 </script>
 </body>
 </html>

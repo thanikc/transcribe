@@ -100,6 +100,29 @@ Feature: Record, transcribe and read local meetings
     Then its status is "failed" with error "model download failed"
     And its audio tracks are kept
 
+  Scenario: Choose the speech model
+    When I record a meeting with the speech model "large-v3-turbo"
+    Then it is transcribed with "large-v3-turbo"
+    And the meeting shows the speech model "large-v3-turbo"
+
+  Scenario: Transcribe again with another speech model
+    Given a meeting transcribed with "large-v3"
+    When I transcribe it again with the speech model "large-v3-turbo"
+    Then its transcript is replaced by one made with "large-v3-turbo"
+
+  Scenario: Not enough memory for large-v3
+    Given "large-v3" does not fit in free memory
+    When an online call is transcribed with "large-v3"
+    Then both tracks are transcribed with "large-v3-turbo"
+    And the meeting shows the warning "not enough free memory for large-v3, so this was transcribed with large-v3-turbo"
+    And the meeting shows the speech model "large-v3-turbo"
+
+  Scenario: Not enough memory for any model
+    Given neither "large-v3" nor "large-v3-turbo" fits in free memory
+    When the meeting is transcribed
+    Then its status is "failed" with an error telling me to close other apps and transcribe again
+    And its audio tracks are kept
+
   Scenario: Re-transcribe a failed meeting
     Given a meeting with status "failed"
     When I transcribe it again and it succeeds

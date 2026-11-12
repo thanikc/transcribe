@@ -43,7 +43,7 @@ Invariants:
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
 | `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
-| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message |
+| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
 | `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
@@ -63,21 +63,28 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 ```
 
 - **Recorder service** (`transcribe serve`): Starlette + uvicorn, which are already dependencies of `mcp`. JSON API:
-  `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language}`,
+  `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language, model?}`,
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
-  `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`.
+  `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?, model?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`, `GET /api/models` (the speech models to choose from: `{name, size, downloaded, default}`).
   `stop` returns at once. Transcription runs in a background thread, and the status is shown in the meeting listings.
   While it runs, each meeting's JSON carries `progress`: `{step, step_number, steps, fraction, elapsed}` (null otherwise).
   The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null
   until the step reports, e.g. while the model loads. Progress is kept in memory only.
 - **Web UI** (`GET /`): one static HTML page with vanilla JS, which polls `/api/status` every second.
-  - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
+  - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), speech model picker (remembered in the browser; a model not yet on the computer says how much it downloads on first use), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
   - A meetings list: newest first, with status badges that update while transcribing.
-  - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track (kept playing while progress refreshes) with a "Play through" output-device picker (the browser default follows the Windows default output; the choice is remembered in the browser; hidden where the browser can't switch outputs), the language (forced or detected), and a "Transcribe again" button with a language picker, for a failed meeting or one where auto-detection got the language wrong. A "Delete meeting" button (transcribed or failed meetings only) asks for confirmation first.
+  - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track (kept playing while progress refreshes) with a "Play through" output-device picker (the browser default follows the Windows default output; the choice is remembered in the browser; hidden where the browser can't switch outputs), the language (forced or detected), the speech model, and a "Transcribe again" button with a language picker and a speech model picker, for a failed meeting, one where auto-detection got the language wrong, or to try the other model. A "Delete meeting" button (transcribed or failed meetings only) asks for confirmation first.
   - Fonts: a system font stack that includes Thai faces (`Leelawadee UI`, `Noto Sans Thai`) and `<meta charset="utf-8">`.
     When you press Stop, the page opens the new meeting showing the current step, "step n of N", a progress bar (animated without a percentage while the model loads) and the time spent on the step, and swaps in the transcript when it's ready (by polling). The list badge shows the percentage. The status line reads "Starting…"/"Stopping…" while the devices open or close. The transcript is shown only after recording, never live.
 - **MCP shim** (`transcribe mcp`, stdio). Tools: `start_recording(title, mode, language="auto")`, `stop_recording()`, `list_meetings()`, `get_transcript(meeting_id)`, `search_transcripts(query)`, `rename_speaker(meeting_id, speaker, name)` (so Claude can name speakers it works out from context, e.g. "thanks, Somchai"), `delete_meeting(meeting_id)` (its description tells Claude to use it only when asked), each forwarded to the service.
 - **CLI** (`transcribe`): `serve`, `mcp`, `record [--title] [--mode] [--language auto|th|en]` (starts a recording through the service; Ctrl+C stops it), `list`, `show <id>`, `search <query>`, `delete <id>`, `download-models` (fetch the Whisper and speaker models ahead of time; the Windows installer runs it, see `windows-installer.md`).
+
+### Speech model
+- Each meeting is transcribed with one speech model, stored on the meeting. The choices are `large-v3` (most accurate) and `large-v3-turbo` (faster, about half the memory), plus the default if `TRANSCRIBE_MODEL` names another one.
+- The page picks the model when recording and when transcribing again. Recordings started from Claude Desktop or the CLI use the default. Any other model name is refused.
+- A model that is not on the computer yet downloads on first use. The service keeps one model loaded at a time.
+- If `large-v3` does not fit in free memory, the meeting is transcribed with `large-v3-turbo` instead, for all of its tracks, and carries the warning "not enough free memory for large-v3, so this was transcribed with large-v3-turbo". The meeting then shows `large-v3-turbo` as its model.
+- If `large-v3-turbo` does not fit either, the meeting is `failed` with a message to close other apps and transcribe again. Its audio is kept.
 
 ### Security (trust boundary: the HTTP API)
 - The service binds to `127.0.0.1` only. There is no auth, because it's a single-user local machine.
@@ -86,7 +93,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 
 ### Config (env vars)
 - `TRANSCRIBE_DATA_DIR`: default `~/Meetings`
-- `TRANSCRIBE_MODEL`: Whisper model name or a path to a CTranslate2 model dir, default `large-v3` (~3 GB download on first transcription; best Thai accuracy). Set `medium` for speed.
+- `TRANSCRIBE_MODEL`: the default speech model: a Whisper model name or a path to a CTranslate2 model dir, default `large-v3` (~3 GB download on first transcription; best Thai accuracy). Set `medium` for speed.
 - `TRANSCRIBE_PORT`: service port, default `8765`
 
 ### Known limits

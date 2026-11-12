@@ -32,8 +32,11 @@ class FakeCapture:
 
 
 class FakeSpeechToText:
+    def has_model(self, model: str) -> bool:
+        return model == "large-v3"
+
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
     ) -> tuple[list[Segment], str]:
         time.sleep(2)  # model loading: no fraction yet
         for tenth in range(1, 11):

@@ -78,8 +78,9 @@ def build_recorder(fake: bool = False) -> tuple[Recorder, Path]:
         recorder = Recorder(
             store,
             SoundcardCapture(),
-            WhisperSpeechToText(_model_name()),
+            WhisperSpeechToText(),
             SherpaDiarizer(data_dir / ".models"),
+            default_model=_model_name(),
         )
     return recorder, data_dir
 
@@ -110,15 +111,16 @@ def _serve(port: int, fake: bool) -> int:
 
 def _download_models() -> int:
     from transcribe.diarize import SherpaDiarizer
-    from transcribe.stt import MODEL_SIZES, WhisperSpeechToText
+    from transcribe.domain import MODELS
+    from transcribe.stt import WhisperSpeechToText
 
     name = _model_name()
-    size = f" ({MODEL_SIZES[name]})" if name in MODEL_SIZES else ""
+    size = f" ({MODELS[name]})" if name in MODELS else ""
     # The Hub's "set a HF_TOKEN for higher rate limits" notice alarms people in the installer's window.
     logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
     try:
         print(f"Downloading the Whisper model {name}{size}…", flush=True)
-        WhisperSpeechToText(name).download()
+        WhisperSpeechToText().download(name)
         print("Downloading the speaker models…", flush=True)
         SherpaDiarizer(_data_dir() / ".models").ensure_models()
     except Exception as error:  # network, disk full, HF hub: all end the same way for the installer

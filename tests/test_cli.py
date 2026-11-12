@@ -141,7 +141,7 @@ def test_download_models_fetches_whisper_and_speaker_models(
     fetched = []
     monkeypatch.setenv("TRANSCRIBE_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("TRANSCRIBE_MODEL", "medium")
-    monkeypatch.setattr(WhisperSpeechToText, "download", lambda self: fetched.append(self._name))
+    monkeypatch.setattr(WhisperSpeechToText, "download", lambda self, name: fetched.append(name))
     monkeypatch.setattr(SherpaDiarizer, "ensure_models", lambda self: fetched.append(self._dir))
     assert cli.main(["download-models"]) == 0
     assert fetched == ["medium", tmp_path / ".models"]
@@ -156,7 +156,7 @@ def test_download_models_fetches_whisper_and_speaker_models(
 def test_download_models_failure_is_an_error(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     from transcribe.stt import WhisperSpeechToText
 
-    def offline(self):
+    def offline(self, name):
         raise OSError("connection reset")
 
     monkeypatch.setattr(WhisperSpeechToText, "download", offline)

@@ -108,10 +108,10 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         return JSONResponse(recorder.status())
 
     async def start(request: Request) -> Response:
-        data = await _body(request, required=("title", "mode"), optional=("language",))
+        data = await _body(request, required=("title", "mode"), optional=("language", "model"))
         # Opening audio devices can take seconds; keep the event loop free for status polling.
         meeting = await run_in_threadpool(
-            recorder.start, data["title"], data["mode"], data.get("language") or "auto"
+            recorder.start, data["title"], data["mode"], data.get("language") or "auto", data.get("model")
         )
         return JSONResponse({"meeting": _meeting_json(meeting)}, status_code=201)
 
@@ -136,9 +136,13 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         return FileResponse(path, media_type="audio/wav" if path.suffix == ".wav" else "audio/mpeg")
 
     async def transcribe(request: Request) -> Response:
-        data = await _body(request, optional=("language",))
-        updated = recorder.transcribe(request.path_params["id"], data.get("language"))
+        data = await _body(request, optional=("language", "model"))
+        updated = recorder.transcribe(request.path_params["id"], data.get("language"), data.get("model"))
         return JSONResponse({"meeting": _meeting_json(updated)})
+
+    async def models(request: Request) -> Response:
+        # Looking in the model cache imports the speech libraries the first time, which takes a moment.
+        return JSONResponse({"models": await run_in_threadpool(recorder.models)})
 
     async def speakers(request: Request) -> Response:
         data = await _body(request, required=("speaker", "name"))
@@ -187,6 +191,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         Route("/api/meetings/{id}/audio/{track}", audio),
         Route("/api/meetings/{id}/transcribe", transcribe, methods=["POST"]),
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),
+        Route("/api/models", models),
         Route("/api/search", search),
     ]
     return Starlette(
