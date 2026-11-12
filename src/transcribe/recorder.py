@@ -270,10 +270,7 @@ class Recorder:
             self.store.delete(meeting_id)
 
     def search(self, query: str) -> list[SearchHit]:
-        transcripts = [
-            (m, self.store.load_transcript(m.id)) for m in self.store.list() if m.status == Status.TRANSCRIBED
-        ]
-        return search_transcripts(transcripts, query)
+        return search_transcripts(self.store.transcripts(mentioning=query), query)
 
     def recover_interrupted(self) -> list[str]:
         with self._lock:

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import datetime
 from pathlib import Path
 
+import httpx2 as httpx
 import pytest
 from starlette.testclient import TestClient
 
@@ -353,3 +356,51 @@ def test_out_of_memory_fallback_shows_as_a_warning(rig: Rig) -> None:
     assert meeting["status"] == "transcribed"
     assert meeting["model"] == "large-v3-turbo"
     assert meeting["warnings"] == ["not enough free memory for large-v3, so this was transcribed with large-v3-turbo"]
+
+
+def test_requests_are_answered_while_a_recording_is_still_starting(tmp_path: Path) -> None:
+    """Opening audio devices takes seconds, with the recorder locked. Nothing else may wait on the event loop."""
+    devices_open = threading.Event()
+    opening = threading.Event()
+
+    class SlowCapture(FakeCapture):
+        def start(self, track_paths):
+            opening.set()
+            devices_open.wait(timeout=10)
+            return super().start(track_paths)
+
+    recorder = Recorder(
+        MeetingStore(tmp_path), SlowCapture(), FakeSpeechToText(SEGMENTS), FakeDiarizer(TURNS), run_in_background=lambda job: job()
+    )
+    first = TestClient(create_app(recorder, allowed_hosts=["testserver"]))
+    devices_open.set()
+    first.post("/api/recordings/start", json={"title": "Earlier", "mode": "mic"})
+    earlier = first.post("/api/recordings/stop", json={}).json()["meeting"]["id"]
+    devices_open.clear()
+    opening.clear()
+    # Lets the test end with a failure instead of hanging if the event loop does get blocked.
+    rescue = threading.Timer(5, devices_open.set)
+    rescue.start()
+
+    async def scenario() -> list[int]:
+        transport = httpx.ASGITransport(app=create_app(recorder, allowed_hosts=["testserver"]))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            start = asyncio.create_task(client.post("/api/recordings/start", json={"title": "Next", "mode": "mic"}))
+            await asyncio.to_thread(opening.wait, 5)
+            # This one needs the recorder's lock, so it can only finish after the devices opened.
+            again = asyncio.create_task(client.post(f"/api/meetings/{earlier}/transcribe", json={}))
+            await asyncio.sleep(0.05)
+            answered = [
+                (await client.get("/api/status")).status_code,
+                (await client.get("/api/meetings")).status_code,
+                (await client.get(f"/api/meetings/{earlier}")).status_code,
+                (await client.get("/api/search", params={"q": "budget"})).status_code,
+            ]
+            still_opening = not devices_open.is_set()
+            devices_open.set()
+            return [*answered, still_opening, (await start).status_code, (await again).status_code]
+
+    try:
+        assert asyncio.run(scenario()) == [200, 200, 200, 200, True, 201, 200]
+    finally:
+        rescue.cancel()

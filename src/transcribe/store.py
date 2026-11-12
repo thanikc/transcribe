@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import stat
 from dataclasses import asdict
 from pathlib import Path
+from typing import Iterator
 
 from transcribe.domain import (
     Meeting,
@@ -16,6 +19,23 @@ from transcribe.domain import (
     TranscriptNotReady,
     UnknownTrack,
 )
+
+# What JSON writes as an escape even with ensure_ascii=False: a query holding one of these
+# does not appear in the file the way it was typed.
+_JSON_ESCAPED = re.compile(r'[\x00-\x1f"\\]')
+
+
+def _file_size(path: Path) -> int | None:
+    """Size of a regular file, None if there is none. One stat call."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_size if stat.S_ISREG(info.st_mode) else None
+
+
+def _segments(raw: str) -> list[Segment]:
+    return [Segment(**item) for item in json.loads(raw)]
 
 
 class MeetingStore:
@@ -42,22 +62,30 @@ class MeetingStore:
     def save(self, meeting: Meeting) -> None:
         self._write_json(self.data_dir / meeting.id / "meeting.json", meeting.to_dict())
 
-    def get(self, meeting_id: str) -> Meeting:
-        folder = self._folder(meeting_id)
+    def _read(self, folder_name: str) -> Meeting:
+        """The meeting in a folder of the data dir. The name must come from a listing, or be checked first."""
         try:
-            data = json.loads((folder / "meeting.json").read_text(encoding="utf-8"))
+            data = json.loads((self.data_dir / folder_name / "meeting.json").read_text(encoding="utf-8"))
             return Meeting.from_dict(data)
         except (OSError, ValueError, KeyError, TypeError):
-            raise MeetingNotFound(meeting_id) from None
+            raise MeetingNotFound(folder_name) from None
+
+    def get(self, meeting_id: str) -> Meeting:
+        self._folder(meeting_id)
+        return self._read(meeting_id)
+
+    def _scan(self) -> list[tuple[str, Meeting]]:
+        """(folder name, meeting) for every readable meeting, newest first, from one listing of the data dir."""
+        found = []
+        for name in os.listdir(self.data_dir):
+            try:
+                found.append((name, self._read(name)))
+            except MeetingNotFound:  # a stray file, the models folder, a corrupt meeting.json
+                continue
+        return sorted(found, key=lambda entry: entry[1].started_at, reverse=True)
 
     def list(self) -> list[Meeting]:
-        meetings = []
-        for meeting_id in self.ids():
-            try:
-                meetings.append(self.get(meeting_id))
-            except MeetingNotFound:
-                continue
-        return sorted(meetings, key=lambda m: m.started_at, reverse=True)
+        return [meeting for _, meeting in self._scan()]
 
     def ids(self) -> set[str]:
         return {p.name for p in self.data_dir.iterdir() if p.is_dir()}
@@ -80,8 +108,14 @@ class MeetingStore:
 
     def audio_bytes(self, meeting: Meeting) -> int:
         """Total size of the meeting's audio files on disk; missing tracks count as 0."""
-        paths = [self._track_file(meeting.id, track) for track in meeting.tracks]
-        return sum(p.stat().st_size for p in paths if p.is_file())
+        folder = self.data_dir / meeting.id
+        total = 0
+        for track in meeting.tracks:
+            size = _file_size(folder / f"{track}.mp3")
+            if size is None:  # a meeting from before MP3
+                size = _file_size(folder / f"{track}.wav")
+            total += size or 0
+        return total
 
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)
@@ -91,5 +125,24 @@ class MeetingStore:
         meeting = self.get(meeting_id)
         if meeting.status != Status.TRANSCRIBED:
             raise TranscriptNotReady(meeting_id, meeting.status.value)
-        raw = json.loads((self.data_dir / meeting_id / "transcript.json").read_text(encoding="utf-8"))
-        return [Segment(**item) for item in raw]
+        return _segments((self.data_dir / meeting_id / "transcript.json").read_text(encoding="utf-8"))
+
+    def transcripts(self, mentioning: str) -> Iterator[tuple[Meeting, list[Segment]]]:
+        """Every transcribed meeting with its segments, newest first, for searching.
+
+        Leaves out transcripts that cannot contain `mentioning` in any letter case, judged from the raw
+        file, so a search parses only the files that can match. A transcript that can't be read is left out.
+        """
+        needle = mentioning.casefold()
+        for name, meeting in self._scan():
+            if meeting.status != Status.TRANSCRIBED:
+                continue
+            try:
+                raw = (self.data_dir / name / "transcript.json").read_text(encoding="utf-8")
+                # Segment text is in the file as spoken, apart from JSON escapes. Without any in the query
+                # or \u ones in the file, a query missing from the file is missing from every segment.
+                if not _JSON_ESCAPED.search(needle) and "\\u" not in raw and needle not in raw.casefold():
+                    continue
+                yield meeting, _segments(raw)
+            except (OSError, ValueError, TypeError):
+                continue

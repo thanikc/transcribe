@@ -1,3 +1,4 @@
+import os
 from dataclasses import replace
 from datetime import datetime
 
@@ -10,6 +11,7 @@ from transcribe.domain import (
     Status,
     TranscriptNotReady,
     UnknownTrack,
+    search_transcripts,
 )
 from transcribe.store import MeetingStore
 
@@ -163,4 +165,71 @@ def test_audio_bytes_sums_existing_tracks(store):
 def test_audio_bytes_zero_without_audio_files(store):
     meeting = make_meeting()
     store.create(meeting)
+    assert store.audio_bytes(meeting) == 0
+
+
+def test_list_reads_the_data_dir_once_however_many_meetings(store, monkeypatch):
+    for n in range(5):
+        store.create(make_meeting(id=f"m{n}"))
+    listings = []
+    real = os.listdir
+    monkeypatch.setattr(os, "listdir", lambda path: listings.append(path) or real(path))
+    assert len(store.list()) == 5
+    assert len(listings) == 1
+
+
+# Text that JSON stores with escapes, text whose case folds to other letters, and plain Thai.
+SPOKEN = [
+    'She said "hello" twice',
+    "path C:\\Users\\me",
+    "line one\nline two\ttabbed",
+    "Die Straße ist lang",
+    "งบประมาณไตรมาสหน้า",
+    "Budget looks fine",
+]
+
+
+@pytest.mark.parametrize(
+    "query",
+    ['"hello"', 'said "', "c:\\users", "\\", "one\nline", "two\tt", "STRASSE", "straße", "งบประมาณ", "BUDGET", "s", "zzz"],
+)
+def test_transcripts_for_search_never_drop_a_meeting_that_has_a_hit(store, query):
+    for n, text in enumerate(SPOKEN):
+        meeting = make_meeting(id=f"m{n}", status=Status.TRANSCRIBED)
+        store.create(meeting)
+        store.save_transcript(meeting.id, [Segment(0, 1, "filler"), Segment(1, 2, text)])
+    everything = [(store.get(f"m{n}"), store.load_transcript(f"m{n}")) for n in range(len(SPOKEN))]
+    expected = sorted(h.text for h in search_transcripts(everything, query))
+    assert sorted(h.text for h in search_transcripts(store.transcripts(mentioning=query), query)) == expected
+
+
+def test_transcripts_for_search_skip_what_cannot_match(store):
+    for meeting_id, text in [("a", "Budget review"), ("b", "Holiday plans")]:
+        store.create(make_meeting(id=meeting_id, status=Status.TRANSCRIBED))
+        store.save_transcript(meeting_id, [Segment(0, 1, text)])
+    store.create(make_meeting(id="c", status=Status.TRANSCRIBING))
+    assert [m.id for m, _ in store.transcripts(mentioning="BUDGET")] == ["a"]
+
+
+def test_transcripts_for_search_read_files_written_with_unicode_escapes(store):
+    # Not how this store writes, but valid JSON: the raw file then lacks the Thai text.
+    store.create(make_meeting(status=Status.TRANSCRIBED))
+    path = store.data_dir / "2026-11-11-1430-standup" / "transcript.json"
+    path.write_text('[{"start": 0, "end": 1, "text": "\\u0e07\\u0e1a", "speaker": null}]', encoding="utf-8")
+    assert [segments[0].text for _, segments in store.transcripts(mentioning="งบ")] == ["งบ"]
+
+
+def test_transcripts_for_search_leave_out_an_unreadable_transcript(store):
+    store.create(make_meeting(id="lost", status=Status.TRANSCRIBED))  # no transcript.json
+    store.create(make_meeting(id="broken", status=Status.TRANSCRIBED))
+    (store.data_dir / "broken" / "transcript.json").write_text("[{", encoding="utf-8")
+    store.create(make_meeting(id="fine", status=Status.TRANSCRIBED))
+    store.save_transcript("fine", [Segment(0, 1, "hello")])
+    assert [m.id for m, _ in store.transcripts(mentioning="hello")] == ["fine"]
+
+
+def test_audio_bytes_ignores_a_folder_named_like_a_track(store):
+    meeting = make_meeting()
+    store.create(meeting)
+    (store.data_dir / meeting.id / "mic.mp3").mkdir()
     assert store.audio_bytes(meeting) == 0
