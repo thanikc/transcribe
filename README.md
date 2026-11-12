@@ -64,6 +64,10 @@ kept, and so is the Whisper model (`%USERPROFILE%\.cache\huggingface`, 1.6–3 G
 The first transcription downloads Whisper `large-v3` (~3 GB). The first speaker detection
 downloads the small sherpa-onnx models into `~/Meetings/.models`.
 
+The page has a **Speech model** picker, when recording and under "Transcribe again": `large-v3` (most accurate)
+or `large-v3-turbo` (faster, about half the memory; downloads ~1.6 GB on first use). If `large-v3` does not fit in
+free memory, the meeting is transcribed with `large-v3-turbo` instead and says so.
+
 **Use headphones on calls.** Without them, the microphone also picks up remote speech, which then
 appears twice in the transcript (`You` and the remote speaker).
 
@@ -153,7 +157,7 @@ transcribe-tray [--background]     # tray app: the service + notification-area i
 | Env var | Default | Meaning |
 |---|---|---|
 | `TRANSCRIBE_DATA_DIR` | `~/Meetings` | Where meetings are stored |
-| `TRANSCRIBE_MODEL` | `large-v3` | Whisper model name or a CTranslate2 model directory (`large-v3-turbo` or `medium` are faster). The installer sets this from its Speech model page. |
+| `TRANSCRIBE_MODEL` | `large-v3` | Whisper model name or a CTranslate2 model directory (`large-v3-turbo` or `medium` are faster). It is the default; the page can pick another per meeting. The installer sets this from its Speech model page. |
 | `TRANSCRIBE_PORT` | `8765` | Service port |
 
 ## Limits

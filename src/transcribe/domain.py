@@ -15,6 +15,10 @@ Track = Literal["mic", "system"]
 MODES: tuple[str, ...] = ("mic", "mic+system")
 LANGUAGES: tuple[str, ...] = ("auto", "th", "en")
 TRACKS: tuple[str, ...] = ("mic", "system")
+# The speech models offered for choosing, with their download size.
+MODELS: dict[str, str] = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
+# What to transcribe with when a model does not fit in memory: about half the size.
+FALLBACK_MODELS: dict[str, str] = {"large-v3": "large-v3-turbo"}
 
 
 class DomainError(Exception):
@@ -61,7 +65,7 @@ class UnknownTrack(DomainError):
 
 
 class InvalidChoice(DomainError):
-    """A mode or language outside the allowed values."""
+    """A mode, language or speech model outside the allowed values."""
 
 
 class Status(StrEnum):
@@ -116,6 +120,8 @@ class Meeting:
     warnings: list[str] = field(default_factory=list)
     detected_languages: dict[str, str] = field(default_factory=dict)
     speaker_names: dict[str, str] = field(default_factory=dict)
+    # The speech model chosen for it, then the one its transcript was made with. "" = the service default.
+    model: str = ""
 
     @property
     def tracks(self) -> list[str]:

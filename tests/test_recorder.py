@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -23,7 +24,7 @@ from transcribe.domain import (
     UnknownSpeaker,
     render_transcript,
 )
-from transcribe.recorder import CaptureError, Recorder
+from transcribe.recorder import CaptureError, OutOfMemory, Recorder
 from transcribe.store import MeetingStore
 
 T0 = datetime(2026, 11, 11, 14, 30)
@@ -70,10 +71,19 @@ class FakeSTT:
         self.error: Exception | None = None
         self.calls: list[tuple[str, str | None]] = []
         self.during: Callable[[Callable[[float], None]], None] = lambda on_progress: None
+        self.models: list[tuple[str, str]] = []
+        self.too_big: set[str] = set()
+        self.downloaded = {"large-v3"}
+
+    def has_model(self, model: str) -> bool:
+        return model in self.downloaded
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
     ) -> tuple[list[Segment], str]:
+        self.models.append((wav.stem, model))
+        if model in self.too_big:
+            raise OutOfMemory(model)
         self.calls.append((wav.stem, language))
         self.during(on_progress)
         if self.error:
@@ -483,3 +493,83 @@ def test_status_answers_while_audio_devices_are_opening(rig: Rig) -> None:
         release.set()
         starter.join(5)
     assert rig.recorder.status()["recording"] is True
+
+
+def test_meeting_is_transcribed_with_the_default_model_unless_one_is_chosen(rig: Rig) -> None:
+    assert rig.transcribed(rig.record()).model == "large-v3"
+    assert rig.transcribed(rig.record("Quick", model="large-v3-turbo")).model == "large-v3-turbo"
+    assert rig.whisper.models == [("mic", "large-v3"), ("mic", "large-v3-turbo")]
+
+
+def test_unknown_model_is_refused(rig: Rig) -> None:
+    with pytest.raises(InvalidChoice, match='model must be one of large-v3, large-v3-turbo, not "huge"'):
+        rig.recorder.start("Weekly sync", "mic", model="huge")
+    assert rig.store.list() == []
+    meeting = rig.transcribed(rig.record())
+    with pytest.raises(InvalidChoice):
+        rig.recorder.transcribe(meeting.id, model="huge")
+    assert rig.store.get(meeting.id).status == Status.TRANSCRIBED
+
+
+def test_transcribe_again_with_another_model(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record())
+    rig.recorder.transcribe(meeting.id, model="large-v3-turbo")
+    assert rig.transcribed(meeting).model == "large-v3-turbo"
+    rig.recorder.transcribe(meeting.id)  # no model named: the meeting keeps its own
+    assert rig.transcribed(meeting).model == "large-v3-turbo"
+    assert [m for _, m in rig.whisper.models] == ["large-v3", "large-v3-turbo", "large-v3-turbo"]
+
+
+def test_meeting_from_before_the_model_choice_uses_the_default(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record())
+    rig.store.save(replace(meeting, model=""))
+    rig.recorder.transcribe(meeting.id)
+    assert rig.transcribed(meeting).model == "large-v3"
+
+
+def test_out_of_memory_falls_back_to_turbo_for_the_rest_of_the_meeting(rig: Rig) -> None:
+    rig.whisper.by_track = {"mic": [Segment(0, 1, "hello")], "system": [Segment(1, 2, "hi")]}
+    rig.whisper.too_big = {"large-v3"}
+    meeting = rig.transcribed(rig.record(mode="mic+system"))
+    assert meeting.status == Status.TRANSCRIBED
+    assert meeting.model == "large-v3-turbo"
+    assert meeting.warnings == ["not enough free memory for large-v3, so this was transcribed with large-v3-turbo"]
+    # large-v3 is tried once, not again for the second track.
+    assert rig.whisper.models == [("mic", "large-v3"), ("mic", "large-v3-turbo"), ("system", "large-v3-turbo")]
+    assert [s.text for s in rig.store.load_transcript(meeting.id)] == ["hello", "hi"]
+
+
+def test_out_of_memory_with_turbo_too_fails_and_keeps_the_audio(rig: Rig) -> None:
+    rig.whisper.too_big = {"large-v3", "large-v3-turbo"}
+    meeting = rig.transcribed(rig.record())
+    assert meeting.status == Status.FAILED
+    assert meeting.error == (
+        "not enough free memory for the large-v3-turbo speech model. The recording is safe: "
+        "close other apps and press Transcribe again"
+    )
+    assert rig.store.track_path(meeting.id, "mic").exists()
+
+
+def test_models_lists_the_choices_and_a_custom_default(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    assert rig.recorder.models() == [
+        {"name": "large-v3", "size": "about 3 GB", "downloaded": True, "default": True},
+        {"name": "large-v3-turbo", "size": "about 1.6 GB", "downloaded": False, "default": False},
+    ]
+    rig.recorder.default_model = "medium"
+    assert rig.recorder.models()[2] == {"name": "medium", "size": None, "downloaded": False, "default": True}
+    assert rig.transcribed(rig.record()).model == "medium"
+
+
+def test_failing_fallback_still_says_memory_ran_out(rig: Rig) -> None:
+    def offline(on_progress) -> None:
+        raise OSError("connection reset")
+
+    rig.whisper.too_big = {"large-v3"}
+    rig.whisper.during = offline
+    meeting = rig.transcribed(rig.record())
+    assert meeting.status == Status.FAILED
+    assert meeting.error == (
+        "not enough free memory for the large-v3 speech model, "
+        "and transcribing with large-v3-turbo instead failed: connection reset"
+    )

@@ -320,3 +320,36 @@ def test_delete_from_foreign_origin_or_without_json_is_refused(rig: Rig) -> None
     assert foreign.status_code == 403
     assert rig.client.request("DELETE", f"/api/meetings/{meeting_id}").status_code == 415
     assert rig.client.get(f"/api/meetings/{meeting_id}").status_code == 200
+
+
+def test_models_endpoint_lists_the_choices(rig: Rig) -> None:
+    assert rig.client.get("/api/models").json() == {
+        "models": [
+            {"name": "large-v3", "size": "about 3 GB", "downloaded": True, "default": True},
+            {"name": "large-v3-turbo", "size": "about 1.6 GB", "downloaded": False, "default": False},
+        ]
+    }
+
+
+def test_model_can_be_chosen_when_recording_and_when_transcribing_again(rig: Rig) -> None:
+    started = rig.client.post(
+        "/api/recordings/start", json={"title": "Weekly sync", "mode": "mic", "model": "large-v3-turbo"}
+    )
+    assert started.json()["meeting"]["model"] == "large-v3-turbo"
+    meeting_id = rig.client.post("/api/recordings/stop", json={}).json()["meeting"]["id"]
+    again = rig.client.post(f"/api/meetings/{meeting_id}/transcribe", json={"model": "large-v3"})
+    assert again.status_code == 200
+    assert rig.client.get(f"/api/meetings/{meeting_id}").json()["meeting"]["model"] == "large-v3"
+    assert rig.stt.used == ["large-v3-turbo", "large-v3"]
+
+    refused = rig.client.post(f"/api/meetings/{meeting_id}/transcribe", json={"model": "huge"})
+    assert refused.status_code == 400
+    assert "model must be one of" in refused.json()["error"]
+
+
+def test_out_of_memory_fallback_shows_as_a_warning(rig: Rig) -> None:
+    rig.stt.too_big = {"large-v3"}
+    meeting = rig.client.get(f"/api/meetings/{rig.record()}").json()["meeting"]
+    assert meeting["status"] == "transcribed"
+    assert meeting["model"] == "large-v3-turbo"
+    assert meeting["warnings"] == ["not enough free memory for large-v3, so this was transcribed with large-v3-turbo"]

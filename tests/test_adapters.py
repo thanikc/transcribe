@@ -36,10 +36,10 @@ def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
             segs = (SimpleNamespace(start=s, end=s + 5, text=f" part {s} ") for s in (0, 5))
             return segs, SimpleNamespace(language="th", duration=20.0)
 
-    stt = WhisperSpeechToText("tiny")
-    stt._model = Model()
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded = Model(), "tiny"
     seen = []
-    segments, language = stt.transcribe(tmp_path / "mic.wav", None, seen.append)
+    segments, language = stt.transcribe(tmp_path / "mic.wav", None, seen.append, "tiny")
     assert segments == [Segment(0, 5, "part 0"), Segment(5, 10, "part 5")]
     assert language == "th"
     assert seen == [0.25, 0.5, 1.0]
@@ -55,12 +55,12 @@ def test_whisper_logs_how_long_it_took_and_on_which_device(tmp_path, caplog):
         def transcribe(self, wav, language, vad_filter):
             return iter(()), SimpleNamespace(language="en", duration=125.0)
 
-    stt = WhisperSpeechToText("tiny")
-    stt._model, stt._device = Model(), "cuda (float16)"
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded, stt._device = Model(), "tiny", "cuda (float16)"
     with caplog.at_level(logging.INFO, logger="transcribe.stt"):
-        stt.transcribe(tmp_path / "mic.wav", None, lambda f: None)
+        stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny")
     [message] = caplog.messages
-    assert message.startswith("transcribed mic.wav (2m05s of audio) in ")
+    assert message.startswith("transcribed mic.wav (2m05s of audio) with tiny in ")
     assert message.endswith("s on cuda (float16)")
 
 
@@ -101,9 +101,10 @@ def test_whisper_download_fetches_the_named_model_once_into_the_shared_cache(mon
     hub = ModuleType("huggingface_hub")
     hub.snapshot_download = lambda repo_id, allow_patterns: fetched.append((repo_id, allow_patterns))
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
-    WhisperSpeechToText("large-v3").download()
-    WhisperSpeechToText("me/my-whisper").download()
-    WhisperSpeechToText(str(tmp_path)).download()  # a local model dir needs no download
+    stt = WhisperSpeechToText()
+    stt.download("large-v3")
+    stt.download("me/my-whisper")
+    stt.download(str(tmp_path))  # a local model dir needs no download
     files = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
     assert fetched == [("Systran/faster-whisper-large-v3", files), ("me/my-whisper", files)]
 
@@ -154,11 +155,12 @@ def test_the_installers_model_choices_are_models_faster_whisper_can_download():
 
     from faster_whisper.utils import _MODELS
 
-    from transcribe.stt import MODEL_SIZES
+    from transcribe.domain import FALLBACK_MODELS, MODELS
 
     installer = (Path(__file__).parent.parent / "installer" / "transcribe.iss").read_text(encoding="utf-8")
-    assert set(MODEL_SIZES) == {"large-v3", "large-v3-turbo"}
-    for name in MODEL_SIZES:
+    assert set(MODELS) == {"large-v3", "large-v3-turbo"}
+    assert set(FALLBACK_MODELS.values()) <= set(MODELS)
+    for name in MODELS:
         assert name in _MODELS
         assert f"'{name}'" in installer
 
@@ -239,20 +241,21 @@ def test_mp3_of_a_killed_recording_keeps_almost_all_its_audio(tmp_path):
     assert len(_read_mono(path, 16000)) / 16000 > 9.0  # of 10 s
 
 
-def test_whisper_out_of_memory_says_what_to_do_and_drops_the_model(tmp_path) -> None:
+def test_whisper_out_of_memory_is_reported_as_such_and_drops_the_model(tmp_path) -> None:
     import pytest
 
+    from transcribe.recorder import OutOfMemory
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
         def transcribe(self, path, language, vad_filter):
             raise RuntimeError("mkl_malloc: failed to allocate memory")
 
-    stt = WhisperSpeechToText("large-v3")
-    stt._model = Model()
-    with pytest.raises(RuntimeError, match="not enough free memory for the large-v3 speech model.*large-v3-turbo"):
-        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None)
-    assert stt._model is None
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded = Model(), "large-v3"
+    with pytest.raises(OutOfMemory, match="not enough free memory for the large-v3 speech model"):
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3")
+    assert stt._model is None and stt._loaded == ""
 
 
 def test_whisper_other_errors_pass_through(tmp_path) -> None:
@@ -264,8 +267,50 @@ def test_whisper_other_errors_pass_through(tmp_path) -> None:
         def transcribe(self, path, language, vad_filter):
             raise RuntimeError("boom")
 
-    stt = WhisperSpeechToText("large-v3")
-    stt._model = Model()
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded = Model(), "large-v3"
     with pytest.raises(RuntimeError, match="^boom$"):
-        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None)
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3")
     assert stt._model is not None
+
+
+def test_whisper_swaps_the_loaded_model_when_another_is_asked_for(monkeypatch, tmp_path) -> None:
+    from types import ModuleType, SimpleNamespace
+
+    from transcribe.stt import WhisperSpeechToText
+
+    loaded = []
+
+    class Model:
+        def __init__(self, name, device, compute_type):
+            loaded.append((name, device, compute_type))
+
+        def transcribe(self, path, language, vad_filter):
+            return iter(()), SimpleNamespace(language="en", duration=1.0)
+
+    whisper = ModuleType("faster_whisper")
+    whisper.WhisperModel = Model
+    ct2 = ModuleType("ctranslate2")
+    ct2.get_cuda_device_count = lambda: 0
+    monkeypatch.setitem(sys.modules, "faster_whisper", whisper)
+    monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+    stt = WhisperSpeechToText()
+    for name in ("large-v3", "large-v3", "large-v3-turbo"):
+        stt.transcribe(tmp_path / "mic.mp3", None, lambda fraction: None, name)
+    assert loaded == [("large-v3", "cpu", "int8"), ("large-v3-turbo", "cpu", "int8")]
+
+
+def test_whisper_knows_which_models_are_already_downloaded(monkeypatch, tmp_path) -> None:
+    from types import ModuleType
+
+    from transcribe.stt import WhisperSpeechToText
+
+    hub = ModuleType("huggingface_hub")
+    cached = {"Systran/faster-whisper-large-v3": "/cache/model.bin"}
+    hub.try_to_load_from_cache = lambda repo_id, filename: cached.get(repo_id)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    stt = WhisperSpeechToText()
+    assert stt.has_model("large-v3")
+    assert not stt.has_model("large-v3-turbo")
+    assert not stt.has_model("no-such-model")
+    assert stt.has_model(str(tmp_path))  # a local model dir
