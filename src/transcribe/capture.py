@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from transcribe.domain import AudioDevice
 from transcribe.recorder import CaptureError
 
 # What Whisper and the speaker models work at; WASAPI resamples to it (soundcard asks for AUTOCONVERTPCM).
@@ -106,17 +107,18 @@ class _Session:
             raise self._errors[0]
 
 
-def _open_device(track: str):
+def _open_device(track: str, device_id: str | None):
     import soundcard
 
     if track == "mic":
-        return soundcard.default_microphone()
-    speaker = soundcard.default_speaker()
-    return soundcard.get_microphone(id=str(speaker.name), include_loopback=True)
+        return soundcard.get_microphone(id=device_id) if device_id else soundcard.default_microphone()
+    # The system audio is what a speaker plays, recorded through its loopback, which has the speaker's id.
+    return soundcard.get_microphone(id=device_id or str(soundcard.default_speaker().name), include_loopback=True)
 
 
 def _record(
     track: str,
+    device_id: str | None,
     path: Path,
     ready: threading.Event,
     stop: threading.Event,
@@ -125,7 +127,7 @@ def _record(
 ) -> None:
     try:
         # Opened in the recording thread so WASAPI handles stay on the thread that uses them.
-        with _open_device(track).recorder(samplerate=SAMPLE_RATE) as rec, Mp3Writer(path) as mp3:
+        with _open_device(track, device_id).recorder(samplerate=SAMPLE_RATE) as rec, Mp3Writer(path) as mp3:
             ready.set()
             while not stop.is_set():
                 block = rec.record(numframes=BLOCK_FRAMES)
@@ -138,12 +140,24 @@ def _record(
 
 
 class SoundcardCapture:
-    def start(self, track_paths: dict[str, Path]) -> _Session:
+    def devices(self) -> dict[str, list[AudioDevice]]:
+        try:
+            import soundcard
+
+            mic, speaker = soundcard.default_microphone().id, soundcard.default_speaker().id
+            return {
+                "mic": [AudioDevice(str(m.id), m.name, m.id == mic) for m in soundcard.all_microphones()],
+                "system": [AudioDevice(str(s.id), s.name, s.id == speaker) for s in soundcard.all_speakers()],
+            }
+        except Exception as e:
+            raise CaptureError(f"could not list the audio devices: {e}") from e
+
+    def start(self, track_paths: dict[str, Path], sources: dict[str, str]) -> _Session:
         stop, errors = threading.Event(), []
         peaks = {t: 0.0 for t in track_paths}
         readies = {t: threading.Event() for t in track_paths}
         threads = [
-            threading.Thread(target=_record, args=(t, p, readies[t], stop, errors, peaks), daemon=True)
+            threading.Thread(target=_record, args=(t, sources.get(t), p, readies[t], stop, errors, peaks), daemon=True)
             for t, p in track_paths.items()
         ]
         for t in threads:

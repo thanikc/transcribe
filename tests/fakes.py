@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from transcribe.domain import Segment, SpeakerTurn
+from transcribe.domain import AudioDevice, Segment, SpeakerTurn
 from transcribe.recorder import OutOfMemory
 
 
@@ -18,7 +18,18 @@ class FakeSession:
 
 
 class FakeCapture:
-    def start(self, track_paths: dict[str, Path]) -> FakeSession:
+    def __init__(self) -> None:
+        self.sources: dict[str, str] = {}
+        self.connected = {
+            "mic": [AudioDevice("mic-headset", "Headset", default=True), AudioDevice("mic-webcam", "Webcam")],
+            "system": [AudioDevice("spk-speakers", "Speakers", default=True), AudioDevice("spk-phones", "Headphones")],
+        }
+
+    def devices(self) -> dict[str, list[AudioDevice]]:
+        return self.connected
+
+    def start(self, track_paths: dict[str, Path], sources: dict[str, str]) -> FakeSession:
+        self.sources = sources
         for path in track_paths.values():
             path.touch()
         return FakeSession()

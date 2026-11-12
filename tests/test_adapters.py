@@ -22,7 +22,7 @@ def test_capture_reports_a_failed_library_import_instead_of_timing_out(monkeypat
 
     monkeypatch.setitem(sys.modules, "numpy", None)  # import numpy -> ImportError
     with pytest.raises(CaptureError, match="could not open the mic device"):
-        SoundcardCapture().start({"mic": tmp_path / "mic.wav"})
+        SoundcardCapture().start({"mic": tmp_path / "mic.wav"}, {})
 
 
 def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
@@ -388,7 +388,7 @@ def test_capture_reports_the_loudest_sample_of_each_tracks_last_block(monkeypatc
     peaks = {"mic": 0.5, "system": 0.0}
 
     class Device:
-        def __init__(self, track):
+        def __init__(self, track, device_id):
             self.track = track
 
         def recorder(self, samplerate):
@@ -407,7 +407,7 @@ def test_capture_reports_the_loudest_sample_of_each_tracks_last_block(monkeypatc
             return block
 
     monkeypatch.setattr(capture, "_open_device", Device)
-    session = capture.SoundcardCapture().start({t: tmp_path / f"{t}.mp3" for t in ("mic", "system")})
+    session = capture.SoundcardCapture().start({t: tmp_path / f"{t}.mp3" for t in ("mic", "system")}, {})
     assert session.levels() == {"mic": 0.0, "system": 0.0}  # nothing captured yet
     for g in gate.values():
         g.release()
@@ -446,3 +446,58 @@ def test_converter_refuses_a_file_that_is_not_audio(tmp_path):
     with pytest.raises(ValueError) as refused:
         AudioFileConverter().convert(tmp_path / "notes.txt", tmp_path / "file.mp3")
     assert str(refused.value) == "Invalid data found when processing input"  # no server-side temp path
+
+
+def _fake_soundcard(monkeypatch):
+    from types import SimpleNamespace
+
+    mics = [SimpleNamespace(id="m1", name="Headset"), SimpleNamespace(id="m2", name="Webcam")]
+    speakers = [SimpleNamespace(id="s1", name="Speakers"), SimpleNamespace(id="s2", name="Headphones")]
+    opened = []
+
+    def get_microphone(id, include_loopback=False):
+        opened.append((id, include_loopback))
+        return id
+
+    fake = SimpleNamespace(
+        all_microphones=lambda include_loopback=False: mics,
+        all_speakers=lambda: speakers,
+        default_microphone=lambda: mics[0],
+        default_speaker=lambda: speakers[0],
+        get_microphone=get_microphone,
+    )
+    monkeypatch.setitem(sys.modules, "soundcard", fake)
+    return opened
+
+
+def test_capture_lists_microphones_and_speakers_with_the_defaults_marked(monkeypatch):
+    from transcribe.capture import SoundcardCapture
+    from transcribe.domain import AudioDevice
+
+    _fake_soundcard(monkeypatch)
+    assert SoundcardCapture().devices() == {
+        "mic": [AudioDevice("m1", "Headset", True), AudioDevice("m2", "Webcam", False)],
+        "system": [AudioDevice("s1", "Speakers", True), AudioDevice("s2", "Headphones", False)],
+    }
+
+
+def test_capture_opens_the_chosen_devices_else_the_defaults(monkeypatch):
+    from transcribe.capture import _open_device
+
+    opened = _fake_soundcard(monkeypatch)
+    assert _open_device("mic", "m2") == "m2"
+    _open_device("system", "s2")
+    _open_device("system", None)
+    assert opened == [("m2", False), ("s2", True), ("Speakers", True)]
+    assert _open_device("mic", None).name == "Headset"
+
+
+def test_capture_reports_a_device_list_it_cannot_read(monkeypatch):
+    import pytest
+
+    from transcribe.capture import SoundcardCapture
+    from transcribe.recorder import CaptureError
+
+    monkeypatch.setitem(sys.modules, "soundcard", None)
+    with pytest.raises(CaptureError, match="could not list the audio devices"):
+        SoundcardCapture().devices()

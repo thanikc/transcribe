@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
@@ -16,6 +16,8 @@ from transcribe.domain import (
     LANGUAGES,
     MODELS,
     MODES,
+    SOURCE_TRACKS,
+    AudioDevice,
     DomainError,
     InvalidChoice,
     InvalidTransition,
@@ -65,8 +67,14 @@ class CaptureSession(Protocol):
 
 
 class AudioCapture(Protocol):
-    def start(self, track_paths: dict[str, Path]) -> CaptureSession:
-        """Start streaming each track to its audio file. Raises CaptureError if a device can't open."""
+    def devices(self) -> dict[str, list[AudioDevice]]:
+        """Per source track ("mic", "system"), the devices connected now."""
+
+    def start(self, track_paths: dict[str, Path], sources: dict[str, str]) -> CaptureSession:
+        """Start streaming each track to its audio file, from the device id in `sources`, else the default.
+
+        Raises CaptureError if a device can't open.
+        """
 
 
 # Called from the worker thread with the share of the work done so far, 0.0 to 1.0.
@@ -177,6 +185,46 @@ class Recorder:
             for name in self._model_names()
         ]
 
+    def sources(self) -> dict:
+        """Per source track, the chosen device (None = the Windows default) and the devices connected now."""
+        chosen = self.store.load_sources()
+        connected = self.capture.devices()
+        return {
+            track: {
+                "chosen": {"id": chosen[track].id, "name": chosen[track].name} if track in chosen else None,
+                "devices": [asdict(d) for d in connected.get(track, [])],
+            }
+            for track in SOURCE_TRACKS
+        }
+
+    def choose_source(self, track: str, device_id: str | None) -> None:
+        """Record `track` from a connected device from the next recording on; None = the Windows default."""
+        if track not in SOURCE_TRACKS:
+            raise InvalidChoice(f'track must be one of {", ".join(SOURCE_TRACKS)}, not "{track}"')
+        with self._lock:
+            chosen = self.store.load_sources()
+            if device_id is None:
+                chosen.pop(track, None)
+            else:
+                device = next((d for d in self.capture.devices().get(track, []) if d.id == device_id), None)
+                if device is None:
+                    raise InvalidChoice(f'that {SOURCE_TRACKS[track]} is not connected')
+                chosen[track] = AudioDevice(device.id, device.name)
+            self.store.save_sources(chosen)
+
+    def _connected_sources(self, tracks: list[str]) -> dict[str, str]:
+        """The chosen device id per track. Refuses rather than record a device other than the one chosen."""
+        chosen = {t: d for t, d in self.store.load_sources().items() if t in tracks}
+        if not chosen:
+            return {}
+        connected = self.capture.devices()
+        for track, device in chosen.items():
+            if all(d.id != device.id for d in connected.get(track, [])):
+                raise CaptureError(
+                    f'the {SOURCE_TRACKS[track]} "{device.name}" is not connected; choose another in Settings'
+                )
+        return {t: d.id for t, d in chosen.items()}
+
     def status(self) -> dict:
         # No lock: start() holds _lock while devices open, and the page polls this every second.
         # _active is swapped as one tuple, so reading it once gives a consistent snapshot.
@@ -238,10 +286,11 @@ class Recorder:
             meeting = Meeting(
                 meeting_id(title, now, self.store.ids()), title, mode, language, now, Status.RECORDING, model=model
             )
+            sources = self._connected_sources(meeting.tracks)
             self.store.create(meeting)
             try:
                 session = self.capture.start(
-                    {track: self.store.track_path(meeting.id, track) for track in meeting.tracks}
+                    {track: self.store.track_path(meeting.id, track) for track in meeting.tracks}, sources
                 )
             except Exception as e:
                 self.store.delete(meeting.id)

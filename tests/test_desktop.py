@@ -268,7 +268,7 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
             self.wait_until(lambda: not recorder.status()["recording"])
             seen["stopped from the tray"] = not recorder.status()["recording"]
             refuse = recorder.capture.start
-            recorder.capture.start = lambda paths: (_ for _ in ()).throw(OSError("no microphone"))
+            recorder.capture.start = lambda paths, sources: (_ for _ in ()).throw(OSError("no microphone"))
             self.choose("Start recording (online call)")
             self.wait_until(lambda: self.notes)
             seen["device error"] = self.notes

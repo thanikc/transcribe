@@ -19,6 +19,8 @@ MODES: tuple[str, ...] = ("mic", "mic+system")
 IMPORTED = "file"
 LANGUAGES: tuple[str, ...] = ("auto", "th", "en")
 TRACKS: tuple[str, ...] = ("mic", "system", "file")
+# The tracks whose device can be chosen: a microphone, and the speaker whose loopback is the system audio.
+SOURCE_TRACKS: dict[str, str] = {"mic": "microphone", "system": "speaker"}
 # The speech models offered for choosing, with their download size.
 MODELS: dict[str, str] = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
 # What to transcribe with when a model does not fit in memory: about half the size.
@@ -167,6 +169,15 @@ class Meeting:
                 "status": Status(data["status"]),
             }
         )
+
+
+@dataclass(frozen=True)
+class AudioDevice:
+    """A microphone or speaker a track can be recorded from. `default`: Windows' default device now."""
+
+    id: str
+    name: str
+    default: bool = False
 
 
 _TRACK_NAMES = {"mic": "microphone", "system": "system audio", "file": "audio file"}

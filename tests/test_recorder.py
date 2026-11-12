@@ -13,6 +13,7 @@ import pytest
 
 from fakes import FakeConverter
 from transcribe.domain import (
+    AudioDevice,
     InvalidChoice,
     InvalidTransition,
     Meeting,
@@ -62,11 +63,20 @@ class FakeCapture:
         self.error: Exception | None = None
         self.stop_error: Exception | None = None
         self.paths: dict[str, Path] = {}
+        self.sources: dict[str, str] = {}
+        self.connected = {
+            "mic": [AudioDevice("mic-headset", "Headset", default=True), AudioDevice("mic-webcam", "Webcam")],
+            "system": [AudioDevice("spk-speakers", "Speakers", default=True), AudioDevice("spk-phones", "Headphones")],
+        }
 
-    def start(self, track_paths: dict[str, Path]) -> FakeSession:
+    def devices(self) -> dict[str, list[AudioDevice]]:
+        return self.connected
+
+    def start(self, track_paths: dict[str, Path], sources: dict[str, str]) -> FakeSession:
         if self.error:
             raise self.error
         self.paths = track_paths
+        self.sources = sources
         for path in track_paths.values():
             path.touch()
         self.session = FakeSession(self.stop_error)
@@ -171,6 +181,78 @@ def test_mic_and_system_has_both_tracks(rig: Rig) -> None:
     meeting = rig.record("Client call", "mic+system")
     assert set(rig.capture.paths) == {"mic", "system"}
     assert meeting.tracks == ["mic", "system"]
+
+
+def test_without_a_choice_recordings_use_the_windows_defaults(rig: Rig) -> None:
+    rig.record("Call", "mic+system")
+    assert rig.capture.sources == {}
+
+
+def test_lists_the_connected_devices_with_none_chosen(rig: Rig) -> None:
+    sources = rig.recorder.sources()
+    assert sources["mic"] == {
+        "chosen": None,
+        "devices": [
+            {"id": "mic-headset", "name": "Headset", "default": True},
+            {"id": "mic-webcam", "name": "Webcam", "default": False},
+        ],
+    }
+    assert [d["name"] for d in sources["system"]["devices"]] == ["Speakers", "Headphones"]
+    assert sources["system"]["chosen"] is None
+
+
+def test_chosen_devices_are_used_for_the_next_recording(rig: Rig) -> None:
+    rig.recorder.choose_source("mic", "mic-webcam")
+    rig.recorder.choose_source("system", "spk-phones")
+    assert rig.recorder.sources()["mic"]["chosen"] == {"id": "mic-webcam", "name": "Webcam"}
+    rig.record("Call", "mic+system")
+    assert rig.capture.sources == {"mic": "mic-webcam", "system": "spk-phones"}
+
+
+def test_a_mic_recording_ignores_the_chosen_speaker(rig: Rig) -> None:
+    rig.recorder.choose_source("system", "spk-phones")
+    rig.capture.connected["system"] = []  # not needed, so not checked
+    rig.record("Standup", "mic")
+    assert rig.capture.sources == {}
+
+
+def test_the_choice_survives_a_restart(rig: Rig) -> None:
+    rig.recorder.choose_source("mic", "mic-webcam")
+    again = Recorder(rig.store, rig.capture, rig.whisper, rig.diarizer, clock=rig.clock, run_in_background=rig.jobs.append)
+    assert again.sources()["mic"]["chosen"] == {"id": "mic-webcam", "name": "Webcam"}
+
+
+def test_going_back_to_the_windows_default(rig: Rig) -> None:
+    rig.recorder.choose_source("mic", "mic-webcam")
+    rig.recorder.choose_source("mic", None)
+    assert rig.recorder.sources()["mic"]["chosen"] is None
+    rig.record()
+    assert rig.capture.sources == {}
+
+
+@pytest.mark.parametrize(
+    "track, device, name, kind",
+    [("mic", "mic-webcam", "Webcam", "microphone"), ("system", "spk-phones", "Headphones", "speaker")],
+)
+def test_an_unplugged_chosen_device_stops_the_recording_from_starting(rig: Rig, track, device, name, kind) -> None:
+    rig.recorder.choose_source(track, device)
+    rig.capture.connected[track] = [d for d in rig.capture.connected[track] if d.id != device]
+    with pytest.raises(CaptureError, match=f'the {kind} "{name}" is not connected; choose another in Settings'):
+        rig.recorder.start("Call", "mic+system")
+    assert rig.store.ids() == set()
+    assert rig.capture.paths == {}
+
+
+def test_only_a_connected_device_can_be_chosen(rig: Rig) -> None:
+    rig.recorder.choose_source("mic", "mic-webcam")
+    with pytest.raises(InvalidChoice, match="not connected"):
+        rig.recorder.choose_source("mic", "mic-gone")
+    assert rig.recorder.sources()["mic"]["chosen"] == {"id": "mic-webcam", "name": "Webcam"}
+
+
+def test_an_imported_file_has_no_source_to_choose(rig: Rig) -> None:
+    with pytest.raises(InvalidChoice, match="mic, system"):
+        rig.recorder.choose_source("file", "mic-webcam")
 
 
 def test_second_start_refused(rig: Rig) -> None:
@@ -493,10 +575,10 @@ def test_status_answers_while_audio_devices_are_opening(rig: Rig) -> None:
     opening, release = threading.Event(), threading.Event()
     start = rig.capture.start
 
-    def slow_start(track_paths):
+    def slow_start(track_paths, sources):
         opening.set()
         release.wait(5)
-        return start(track_paths)
+        return start(track_paths, sources)
 
     rig.capture.start = slow_start
     starter = threading.Thread(target=lambda: rig.recorder.start("Live", "mic"))

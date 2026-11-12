@@ -223,8 +223,40 @@ def test_bad_request_bodies_400(rig: Rig, body: bytes) -> None:
 def test_invalid_choice_400_and_capture_error_503(rig: Rig) -> None:
     bad = rig.client.post("/api/recordings/start", json={"title": "x", "mode": "video"})
     assert bad.status_code == 400
-    rig.recorder.capture.start = lambda paths: (_ for _ in ()).throw(OSError("busy"))
+    rig.recorder.capture.start = lambda paths, sources: (_ for _ in ()).throw(OSError("busy"))
     assert rig.client.post("/api/recordings/start", json={"title": "x", "mode": "mic"}).status_code == 503
+
+
+def test_lists_the_audio_sources(rig: Rig) -> None:
+    sources = rig.client.get("/api/sources").json()["sources"]
+    assert sources["mic"]["chosen"] is None
+    assert sources["mic"]["devices"][0] == {"id": "mic-headset", "name": "Headset", "default": True}
+    assert [d["name"] for d in sources["system"]["devices"]] == ["Speakers", "Headphones"]
+
+
+def test_choosing_an_audio_source_is_used_by_the_next_recording(rig: Rig) -> None:
+    chosen = rig.client.post("/api/sources", json={"track": "mic", "device": "mic-webcam"})
+    assert chosen.status_code == 200
+    assert chosen.json()["sources"]["mic"]["chosen"] == {"id": "mic-webcam", "name": "Webcam"}
+    rig.record()
+    assert rig.recorder.capture.sources == {"mic": "mic-webcam"}
+    cleared = rig.client.post("/api/sources", json={"track": "mic", "device": None})
+    assert cleared.json()["sources"]["mic"]["chosen"] is None
+
+
+@pytest.mark.parametrize(
+    "body", [{"track": "file", "device": None}, {"track": "mic", "device": "gone"}, {"track": "mic", "device": 3}, {}]
+)
+def test_a_bad_audio_source_choice_is_400(rig: Rig, body: dict) -> None:
+    assert rig.client.post("/api/sources", json=body).status_code == 400
+
+
+def test_an_unplugged_chosen_device_refuses_to_start_with_503(rig: Rig) -> None:
+    rig.client.post("/api/sources", json={"track": "mic", "device": "mic-webcam"})
+    rig.recorder.capture.connected["mic"] = []
+    refused = rig.client.post("/api/recordings/start", json={"title": "x", "mode": "mic"})
+    assert refused.status_code == 503
+    assert refused.json()["error"] == 'the microphone "Webcam" is not connected; choose another in Settings'
 
 
 def test_rename_speaker(rig: Rig) -> None:
@@ -382,10 +414,10 @@ def test_requests_are_answered_while_a_recording_is_still_starting(tmp_path: Pat
     opening = threading.Event()
 
     class SlowCapture(FakeCapture):
-        def start(self, track_paths):
+        def start(self, track_paths, sources):
             opening.set()
             devices_open.wait(timeout=10)
-            return super().start(track_paths)
+            return super().start(track_paths, sources)
 
     recorder = Recorder(
         MeetingStore(tmp_path), SlowCapture(), FakeSpeechToText(SEGMENTS), FakeDiarizer(TURNS), run_in_background=lambda job: job()

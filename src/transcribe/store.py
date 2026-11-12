@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterator
 
 from transcribe.domain import (
+    AudioDevice,
     Meeting,
     MeetingNotFound,
     Segment,
@@ -139,6 +140,17 @@ class MeetingStore:
             return (self._folder(meeting_id) / "notes.md").read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
+
+    def load_sources(self) -> dict[str, AudioDevice]:
+        """The chosen device per track; a track left out records from the Windows default."""
+        try:
+            data = json.loads((self.data_dir / "sources.json").read_text(encoding="utf-8"))
+            return {track: AudioDevice(d["id"], d["name"]) for track, d in data.items() if d}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):  # none saved yet, or a corrupt file
+            return {}
+
+    def save_sources(self, sources: dict[str, AudioDevice]) -> None:
+        self._write_json(self.data_dir / "sources.json", {t: {"id": d.id, "name": d.name} for t, d in sources.items()})
 
     def vocabulary_file(self) -> Path:
         """vocabulary.txt in the data dir, created with a how-to if there is none."""

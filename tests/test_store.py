@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from transcribe.domain import (
+    AudioDevice,
     Meeting,
     MeetingNotFound,
     Segment,
@@ -275,3 +276,24 @@ def test_vocabulary_file_is_created_with_a_how_to_and_never_overwritten(store):
     path.write_text("Somchai\n", encoding="utf-8")
     assert store.vocabulary_file().read_text(encoding="utf-8") == "Somchai\n"
     assert store.list() == []  # not mistaken for a meeting
+
+
+def test_no_audio_sources_are_chosen_at_first(store):
+    assert store.load_sources() == {}
+
+
+def test_chosen_audio_sources_survive_a_restart(store):
+    store.save_sources({"mic": AudioDevice("{0.0.1}.webcam", "Webcam ไมค์")})
+    assert MeetingStore(store.data_dir).load_sources() == {"mic": AudioDevice("{0.0.1}.webcam", "Webcam ไมค์")}
+    assert "ไมค์" in (store.data_dir / "sources.json").read_text(encoding="utf-8")
+
+
+def test_a_corrupt_sources_file_means_the_windows_defaults(store):
+    (store.data_dir / "sources.json").write_text("{not json", encoding="utf-8")
+    assert store.load_sources() == {}
+
+
+def test_the_sources_file_is_not_a_meeting(store):
+    store.save_sources({"mic": AudioDevice("w", "Webcam")})
+    store.create(make_meeting())
+    assert [m.id for m in store.list()] == ["2026-11-11-1430-standup"]

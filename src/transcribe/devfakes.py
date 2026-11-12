@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from transcribe.domain import Segment, SpeakerTurn
+from transcribe.domain import AudioDevice, Segment, SpeakerTurn
 
 SEGMENTS = [
     Segment(0, 3, "สวัสดีครับ เริ่มประชุมกันเลย"),
@@ -31,7 +31,13 @@ class FakeSession:
 
 
 class FakeCapture:
-    def start(self, track_paths: dict[str, Path]) -> FakeSession:
+    def devices(self) -> dict[str, list[AudioDevice]]:
+        return {
+            "mic": [AudioDevice("mic-1", "Microphone Array (Realtek)", True), AudioDevice("mic-2", "Headset ไมค์")],
+            "system": [AudioDevice("spk-1", "Speakers (Realtek)", True), AudioDevice("spk-2", "Headphones")],
+        }
+
+    def start(self, track_paths: dict[str, Path], sources: dict[str, str]) -> FakeSession:
         from transcribe.capture import Mp3Writer
 
         for path in track_paths.values():

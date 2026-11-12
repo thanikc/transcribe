@@ -25,6 +25,7 @@ recordings and shows them.
 | **Meeting status** | `recording` → `transcribing` → `transcribed`, or `failed` (with an error message). |
 | **Notes** | Free text kept with a meeting, such as a summary and action items Claude wrote. Not part of the transcript or search. |
 | **Vocabulary** | Names and words Whisper should expect (teammates, customers, products, jargon): `<data dir>/vocabulary.txt`, one per line, `#` lines left out. Given to Whisper as hotwords for every transcription, as many whole words as fit in 800 characters. |
+| **Audio source** | The device a track is recorded from: a microphone, or the speaker whose loopback is the system audio. Chosen in Settings, saved in `<data dir>/sources.json`, used by every recording; none chosen = the Windows default. See `audio-sources.md`. |
 | **Search hit** | A segment whose text contains the query (case-insensitive), with its meeting id and timestamp. |
 
 ### Aggregate: Meeting
@@ -74,7 +75,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - **Recorder service** (`transcribe serve`): Starlette + uvicorn, which are already dependencies of `mcp`. JSON API:
   `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds, `levels` per track), `POST /api/recordings/start {title, mode, language, model?}`,
   `POST /api/recordings/stop`, `POST /api/meetings/import?title=&language=&model=` (body: the file's bytes as `application/octet-stream`; 201 with the meeting, now `transcribing`), `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
-  `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?, model?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `POST /api/meetings/{id}/notes {notes}` (replace; empty removes; the meeting JSON carries `notes`), `POST /api/meetings/{id}/title {title}` (rename; the id stays), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`, `GET /api/models` (the speech models to choose from: `{name, size, downloaded, default}`).
+  `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?, model?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `POST /api/meetings/{id}/notes {notes}` (replace; empty removes; the meeting JSON carries `notes`), `POST /api/meetings/{id}/title {title}` (rename; the id stays), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`, `GET /api/models` (the speech models to choose from: `{name, size, downloaded, default}`), `GET /api/sources` and `POST /api/sources {track, device|null}` (the microphone and the speaker for system audio; see `audio-sources.md`).
   `stop` returns at once. Transcription runs on one background thread, one meeting at a time in the order asked for, and the status is shown in the meeting listings.
   A meeting waiting its turn is `transcribing` with no `progress` yet.
   Requests that read the disk or wait for the recorder run in a thread pool, so status polls are answered while a recording starts or a search runs.
