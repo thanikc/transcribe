@@ -69,11 +69,19 @@ class MeetingStore:
         meeting = self.get(meeting_id)
         if track not in meeting.tracks:
             raise UnknownTrack(meeting_id, track)
+        return self._track_file(meeting_id, track)
+
+    def _track_file(self, meeting_id: str, track: str) -> Path:
         folder = self.data_dir / meeting_id
         # Meetings recorded before the switch to MP3 have WAV tracks.
         legacy = folder / f"{track}.wav"
         mp3 = folder / f"{track}.mp3"
         return legacy if legacy.exists() and not mp3.exists() else mp3
+
+    def audio_bytes(self, meeting: Meeting) -> int:
+        """Total size of the meeting's audio files on disk; missing tracks count as 0."""
+        paths = [self._track_file(meeting.id, track) for track in meeting.tracks]
+        return sum(p.stat().st_size for p in paths if p.is_file())
 
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)

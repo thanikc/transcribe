@@ -155,6 +155,13 @@ const mmss = (sec) => {
   sec = Math.max(0, Math.floor(sec || 0));
   return String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
 };
+const fileSize = (bytes) => {
+  if (!bytes) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+  return (i === 0 ? bytes : bytes.toFixed(1)) + " " + units[i];
+};
 
 async function api(method, path, body) {
   const opts = { method, headers: {} };
@@ -240,7 +247,7 @@ function renderList() {
     const when = new Date(m.started_at).toLocaleString();
     const b = el("button", { type: "button", class: "item", "data-id": m.id, onclick: () => openMeeting(m.id) },
       el("div", { class: "t" }, document.createTextNode(m.title || m.id), badge(m.status, m.progress)),
-      el("div", { class: "m", text: `${when} · ${mmss(m.duration)}` }));
+      el("div", { class: "m", text: `${when} · ${mmss(m.duration)} · ${fileSize(m.audio_bytes)}` }));
     if (m.id === state.currentId) b.setAttribute("aria-current", "true");
     ul.append(el("li", null, b));
   }
@@ -321,6 +328,7 @@ function renderMeeting() {
   }
   const dl = el("dl", { class: "meta" });
   for (const [k, v] of [["Started", new Date(m.started_at).toLocaleString()], ["Duration", m.duration != null ? mmss(m.duration) : "—"],
+    ["Size", fileSize(m.audio_bytes)],
     ["Mode", MODE_LABEL[m.mode] || m.mode], ["Language", lang]]) {
     dl.append(el("dt", { text: k }), el("dd", { text: v }));
   }

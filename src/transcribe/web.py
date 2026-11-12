@@ -83,7 +83,12 @@ async def _body(request: Request, required: tuple[str, ...] = (), optional: tupl
 
 def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> Starlette:
     def _meeting_json(meeting: Meeting) -> dict:
-        return {**meeting.to_dict(), "tracks": meeting.tracks, "progress": recorder.progress(meeting.id)}
+        return {
+            **meeting.to_dict(),
+            "tracks": meeting.tracks,
+            "audio_bytes": recorder.store.audio_bytes(meeting),
+            "progress": recorder.progress(meeting.id),
+        }
 
     def detail(meeting_id: str) -> dict:
         meeting = recorder.store.get(meeting_id)
