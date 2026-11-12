@@ -293,3 +293,11 @@ Feature: Record, transcribe and read local meetings
     Given the recorder service is not running
     When Claude calls start_recording
     Then the reply says the recorder service is not running and to start it with "transcribe serve"
+
+  Scenario: The web page loses the recorder service
+    Given the web page is open
+    When three status checks in a row get no answer from the recorder service
+    Then the page says "Disconnected" and that it can't reach the recorder
+    And the Start button is disabled and the elapsed time stops
+    When the service answers again
+    Then the message goes away and the meetings list and speech models are reloaded

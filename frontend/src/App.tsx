@@ -16,6 +16,7 @@ import {
 } from "./utils";
 
 const MODEL_KEY = "transcribe.model";
+const OFFLINE_AFTER = 3;
 
 export const inProgress = (d: MeetingDetail | null): boolean =>
   !!d &&
@@ -32,6 +33,8 @@ export function App() {
   const [recError, setRecError] = useState("");
   const recordingRef = useRef(false);
   const busyRef = useRef(false);
+  const [offline, setOffline] = useState(false);
+  const failedPollsRef = useRef(0);
 
   // Recording settings
   const [title, setTitle] = useState("");
@@ -70,29 +73,6 @@ export function App() {
     }
   }, []);
 
-  const pollStatus = useCallback(async () => {
-    try {
-      const st = await api<RecorderStatus>("GET", "/api/status");
-      const wasRec = recordingRef.current;
-      const nowRec = !!st.recording;
-      recordingRef.current = nowRec;
-      setRecording(nowRec);
-      if (nowRec) {
-        setRecTitle(st.title || st.meeting_id || "");
-        setElapsed(st.elapsed || 0);
-        setElapsedAt(performance.now());
-        setLevels(st.levels || null);
-      } else {
-        setLevels(null);
-      }
-      if (wasRec !== nowRec) {
-        loadMeetings();
-      }
-    } catch {
-      /* transient; try again next tick */
-    }
-  }, [loadMeetings]);
-
   const loadModels = useCallback(async () => {
     try {
       const data = await api<{ models: SpeechModelInfo[] }>(
@@ -114,6 +94,37 @@ export function App() {
       /* ignore */
     }
   }, []);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const st = await api<RecorderStatus>("GET", "/api/status");
+      const wasRec = recordingRef.current;
+      const nowRec = !!st.recording;
+      recordingRef.current = nowRec;
+      setRecording(nowRec);
+      if (nowRec) {
+        setRecTitle(st.title || st.meeting_id || "");
+        setElapsed(st.elapsed || 0);
+        setElapsedAt(performance.now());
+        setLevels(st.levels || null);
+      } else {
+        setLevels(null);
+      }
+      if (wasRec !== nowRec) {
+        loadMeetings();
+      }
+      if (failedPollsRef.current >= OFFLINE_AFTER) {
+        loadMeetings();
+        loadModels();
+      }
+      failedPollsRef.current = 0;
+      setOffline(false);
+    } catch {
+      // one miss is transient; several in a row mean the service is gone
+      failedPollsRef.current++;
+      if (failedPollsRef.current >= OFFLINE_AFTER) setOffline(true);
+    }
+  }, [loadMeetings, loadModels]);
 
   const handleModelChange = (nextModel: string) => {
     setModel(nextModel);
@@ -309,6 +320,7 @@ export function App() {
       <TopDock
         recording={recording}
         busy={busy}
+        offline={offline}
         recTitle={recTitle}
         elapsed={elapsed}
         elapsedAt={elapsedAt}

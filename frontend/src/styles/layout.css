@@ -72,6 +72,16 @@ h1 {
   font-size: var(--text-sm);
 }
 
+.offline-banner {
+  max-width: 1440px;
+  margin: var(--sp-2) auto 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-left: 3px solid var(--warn);
+  font-size: var(--text-sm);
+}
+
 /* Inline Level Meters in Dock */
 #meters {
   display: flex;

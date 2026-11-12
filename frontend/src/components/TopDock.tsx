@@ -8,6 +8,7 @@ import { SettingsDrawer } from "./SettingsDrawer";
 interface TopDockProps {
   recording: boolean;
   busy: boolean;
+  offline: boolean;
   recTitle: string;
   elapsed: number;
   elapsedAt: number;
@@ -29,6 +30,7 @@ interface TopDockProps {
 export function TopDock({
   recording,
   busy,
+  offline,
   recTitle,
   elapsed,
   elapsedAt,
@@ -49,12 +51,12 @@ export function TopDock({
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    if (!recording || busy) return;
+    if (!recording || busy || offline) return;
     const id = setInterval(() => {
       if (!document.hidden) setTick((t) => t + 1);
     }, 250);
     return () => clearInterval(id);
-  }, [recording, busy]);
+  }, [recording, busy, offline]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -86,7 +88,9 @@ export function TopDock({
 
   let statusText = "Not recording";
   let statusClass = "";
-  if (busy) {
+  if (offline) {
+    statusText = "Disconnected";
+  } else if (busy) {
     statusText = recording ? "Stopping…" : "Starting…";
   } else if (recording) {
     const currentElapsed =
@@ -127,7 +131,7 @@ export function TopDock({
             type="button"
             id="toggle"
             className={recording ? "stop" : "primary"}
-            disabled={busy}
+            disabled={busy || offline}
             onClick={onToggleRecording}
           >
             {recording ? "Stop recording" : "Start recording"}
@@ -153,6 +157,12 @@ export function TopDock({
           />
         </div>
       </div>
+      {offline && (
+        <div className="offline-banner" role="alert">
+          Can't reach the recorder. Check that Transcribe is running; this page
+          reconnects by itself.
+        </div>
+      )}
       <div id="rec-error" className="err" role="alert">
         {recError}
       </div>
