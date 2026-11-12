@@ -8,6 +8,7 @@ for the status polls.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -36,7 +37,9 @@ from transcribe.domain import (
 )
 from transcribe.recorder import CaptureError, Recorder
 
-INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+STATIC_DIR = Path(__file__).parent / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
+SCRIPT_NAME = re.compile(r"[a-z]+\.js")
 
 
 class BadRequest(DomainError):
@@ -104,6 +107,15 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
 
     async def index(request: Request) -> Response:
         return FileResponse(INDEX_HTML, media_type="text/html; charset=utf-8")
+
+    def script(request: Request) -> Response:
+        # Served with an explicit type: browsers refuse module scripts that arrive as text/plain,
+        # which is what Windows can guess for .js from its registry.
+        name = request.path_params["name"]
+        path = STATIC_DIR / "js" / name
+        if not SCRIPT_NAME.fullmatch(name) or not path.is_file():
+            return _error("not found", 404)
+        return FileResponse(path, media_type="text/javascript; charset=utf-8")
 
     async def status(request: Request) -> Response:
         return JSONResponse(recorder.status())
@@ -192,6 +204,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
 
     routes = [
         Route("/", index),
+        Route("/static/js/{name}", script),
         Route("/api/status", status),
         Route("/api/recordings/start", start, methods=["POST"]),
         Route("/api/recordings/stop", stop, methods=["POST"]),

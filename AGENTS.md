@@ -27,7 +27,8 @@ src/transcribe/
   recorder.py    port Protocols (AudioCapture, SpeechToText, SpeakerDiarizer) + Recorder orchestration + the one-at-a-time job worker
   capture.py     soundcard adapter      stt.py      faster-whisper adapter
   diarize.py     sherpa-onnx adapter
-  web.py         Starlette JSON API + static/index.html; origin/content-type guard on POST/DELETE, trusted hosts
+  web.py         Starlette JSON API + static/index.html and static/js/*.js (plain ES modules, no build step);
+                 origin/content-type guard on POST/DELETE, trusted hosts
   client.py      HTTP client + text formatting shared by the MCP shim and the CLI
   mcp_server.py  stdio MCP tools -> client
   cli.py         serve | mcp | record | list | show | search | delete | download-models
