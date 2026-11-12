@@ -108,10 +108,19 @@ class _Session:
             raise self._errors[0]
 
 
+def _soundcard():
+    """Imports soundcard with COM joined on the calling thread. soundcard initialises COM only on the thread that
+    imports it, so a device listed on a web worker thread, or opened in a recording thread, fails with
+    CO_E_NOTINITIALIZED (0x800401f0) unless its own thread has joined. The import comes first: soundcard's own
+    CoInitializeEx treats S_FALSE ("already joined") as an error, so joining before it breaks the import."""
+    import soundcard
+
+    _join_com()
+    return soundcard
+
+
 def _join_com() -> None:
-    """Joins the calling thread to COM's multithreaded apartment. soundcard initialises COM only on the thread
-    that imports it, so a device listed on a web worker thread, or opened in a recording thread, fails with
-    CO_E_NOTINITIALIZED (0x800401f0) unless its own thread has joined. Joining twice is harmless; a thread
+    """Joins the calling thread to COM's multithreaded apartment. Joining twice is harmless (S_FALSE); a thread
     already in a single-threaded apartment (RPC_E_CHANGED_MODE) can use COM as it is."""
     if sys.platform == "win32":
         import ctypes
@@ -120,9 +129,7 @@ def _join_com() -> None:
 
 
 def _open_device(track: str, device_id: str | None):
-    _join_com()
-    import soundcard
-
+    soundcard = _soundcard()
     if track == "mic":
         return soundcard.get_microphone(id=device_id) if device_id else soundcard.default_microphone()
     # The system audio is what a speaker plays, recorded through its loopback, which has the speaker's id.
@@ -155,9 +162,7 @@ def _record(
 class SoundcardCapture:
     def devices(self) -> dict[str, list[AudioDevice]]:
         try:
-            _join_com()
-            import soundcard
-
+            soundcard = _soundcard()
             mic, speaker = soundcard.default_microphone().id, soundcard.default_speaker().id
             return {
                 "mic": [AudioDevice(str(m.id), m.name, m.id == mic) for m in soundcard.all_microphones()],

@@ -509,7 +509,12 @@ def test_capture_joins_com_on_each_thread_that_lists_or_opens_devices(monkeypatc
 
     _fake_soundcard(monkeypatch)
     joined = []
-    monkeypatch.setattr(capture, "_join_com", lambda: joined.append(threading.get_ident()))
+
+    def join() -> None:
+        assert "soundcard" in sys.modules  # soundcard's import fails on a thread that already joined (S_FALSE)
+        joined.append(threading.get_ident())
+
+    monkeypatch.setattr(capture, "_join_com", join)
     seen = []
 
     def use() -> None:
