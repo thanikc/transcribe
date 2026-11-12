@@ -21,6 +21,9 @@ interface TopDockProps {
   recError: string;
   title: string;
   onTitleChange: (title: string) => void;
+  /** While recording: rename the recording to the field's text. */
+  onCommitTitle: () => void;
+  onRevertTitle: () => void;
   mode: string;
   onModeChange: (mode: string) => void;
   language: string;
@@ -43,6 +46,8 @@ export function TopDock({
   recError,
   title,
   onTitleChange,
+  onCommitTitle,
+  onRevertTitle,
   mode,
   onModeChange,
   language,
@@ -129,9 +134,22 @@ export function TopDock({
             id="title"
             className="title-input"
             placeholder="Meeting title…"
+            title={recording ? "Rename this recording: type and press Enter" : undefined}
             autoComplete="off"
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (!recording) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onCommitTitle();
+              } else if (e.key === "Escape") {
+                onRevertTitle();
+              }
+            }}
+            onBlur={() => {
+              if (recording) onCommitTitle();
+            }}
           />
           <div
             className="mode-switch"
@@ -174,7 +192,6 @@ export function TopDock({
             models={models}
           />
           <ImportDrawer
-            title={title}
             language={language}
             model={model}
             onImported={onImported}

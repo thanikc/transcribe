@@ -1,22 +1,22 @@
 import { useRef, useState } from "react";
 import { uploadAudioFile } from "../api";
+import { LANG_LABEL } from "../utils";
 
 interface ImportDrawerProps {
-  title: string;
   language: string;
   model: string;
   onImported: (meetingId: string) => Promise<void> | void;
 }
 
 export function ImportDrawer({
-  title,
   language,
   model,
   onImported,
 }: ImportDrawerProps) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [hasFile, setHasFile] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [title, setTitle] = useState("");
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,8 +26,7 @@ export function ImportDrawer({
     setImporting(true);
     setError("");
     try {
-      const effectiveTitle =
-        title.trim() || file.name.replace(/\.[^.]+$/, "");
+      const effectiveTitle = title.trim() || baseName(file.name);
       const data = await uploadAudioFile(file, {
         title: effectiveTitle,
         language,
@@ -36,7 +35,8 @@ export function ImportDrawer({
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-      setHasFile(false);
+      setFileName("");
+      setTitle("");
       if (detailsRef.current) {
         detailsRef.current.open = false;
       }
@@ -62,13 +62,26 @@ export function ImportDrawer({
               type="file"
               id="import-file"
               accept="audio/*,video/*"
-              onChange={(e) => setHasFile(!!e.target.files?.length)}
+              onChange={(e) => setFileName(e.target.files?.[0]?.name || "")}
+            />
+          </div>
+        </div>
+        <label htmlFor="import-title">Title</label>
+        <div className="row">
+          <div>
+            <input
+              type="text"
+              id="import-title"
+              autoComplete="off"
+              placeholder={fileName ? baseName(fileName) : "The file's name"}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
           </div>
           <button
             type="button"
             id="import"
-            disabled={!hasFile || importing}
+            disabled={!fileName || importing}
             onClick={handleImport}
           >
             {importing ? "Importing…" : "Import"}
@@ -78,8 +91,7 @@ export function ImportDrawer({
           className="muted"
           style={{ margin: "8px 0 0", fontSize: "var(--text-xs)" }}
         >
-          Uses the title, language and speech model selected. Without a title,
-          the file name is used.
+          {`Transcribed as ${LANG_LABEL[language] || language} · ${model || "the default model"}. Change these in Settings.`}
         </p>
         <div id="import-error" className="err" role="alert">
           {error}
@@ -88,3 +100,5 @@ export function ImportDrawer({
     </details>
   );
 }
+
+const baseName = (name: string) => name.replace(/\.[^.]+$/, "");

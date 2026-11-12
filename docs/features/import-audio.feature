@@ -8,6 +8,13 @@ Feature: Import an audio file
     And its duration is the file's length
     And it is transcribed and its speakers detected like an in-person meeting
 
+  Scenario: The import panel has its own title
+    Given I typed "Design review" as the next recording's title
+    When I choose "standup.m4a" under "Import audio file" and leave its Title empty
+    Then the Title field suggests "standup"
+    And the panel says it is transcribed as "Auto · large-v3" and that these change in Settings
+    And the imported meeting is called "standup", not "Design review"
+
   Scenario: Import from the CLI
     When I run "transcribe import standup.m4a --language th"
     Then a meeting titled "standup" is created and its id printed

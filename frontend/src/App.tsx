@@ -47,7 +47,16 @@ export function App() {
   const failedPollsRef = useRef(0);
 
   // Recording settings
-  const [title, setTitle] = useState("");
+  const [title, setTitleState] = useState("");
+  const titleRef = useRef("");
+  const setTitle = useCallback((t: string) => {
+    titleRef.current = t;
+    setTitleState(t);
+  }, []);
+  // the recording's title as the service has it, and its meeting id
+  const liveTitleRef = useRef("");
+  const recIdRef = useRef<string | null>(null);
+  const renamingRef = useRef(false);
   const [mode, setMode] = useState(savedMode);
   const [recMode, setRecMode] = useState("");
   const [language, setLanguage] = useState("auto");
@@ -114,6 +123,12 @@ export function App() {
       recordingRef.current = nowRec;
       setRecording(nowRec);
       if (nowRec) {
+        recIdRef.current = st.meeting_id || null;
+        liveTitleRef.current = st.title || "";
+        // don't overwrite what is being typed
+        if (!renamingRef.current && document.activeElement?.id !== "title") {
+          setTitle(st.title || "");
+        }
         setRecTitle(st.title || st.meeting_id || "");
         setRecMode(st.mode || "");
         setElapsed(st.elapsed || 0);
@@ -121,6 +136,7 @@ export function App() {
         setLevels(st.levels || null);
       } else {
         setLevels(null);
+        if (wasRec) setTitle("");
       }
       if (wasRec !== nowRec) {
         loadMeetings();
@@ -136,7 +152,7 @@ export function App() {
       failedPollsRef.current++;
       if (failedPollsRef.current >= OFFLINE_AFTER) setOffline(true);
     }
-  }, [loadMeetings, loadModels]);
+  }, [loadMeetings, loadModels, setTitle]);
 
   const handleModeChange = (nextMode: string) => {
     setMode(nextMode);
@@ -302,6 +318,7 @@ export function App() {
         recordingRef.current = false;
         setRecording(false);
         setLevels(null);
+        setTitle("");
         await loadMeetings();
         openMeetingHash(r.meeting.id);
       } else {
@@ -318,6 +335,9 @@ export function App() {
         recordingRef.current = true;
         setRecording(true);
         setRecTitle(r.meeting.title || r.meeting.id);
+        setTitle(r.meeting.title || "");
+        liveTitleRef.current = r.meeting.title || "";
+        recIdRef.current = r.meeting.id;
         setRecMode(r.meeting.mode);
         setElapsed(0);
         setElapsedAt(performance.now());
@@ -329,6 +349,31 @@ export function App() {
       busyRef.current = false;
       setBusy(false);
       pollStatus();
+    }
+  };
+
+  const handleCommitLiveTitle = async () => {
+    const id = recIdRef.current;
+    const next = titleRef.current.trim();
+    if (!recordingRef.current || !id || renamingRef.current) return;
+    if (next === liveTitleRef.current) return;
+    renamingRef.current = true;
+    setRecError("");
+    try {
+      const r = await api<MeetingDetail>(
+        "POST",
+        `/api/meetings/${encodeURIComponent(id)}/title`,
+        { title: next },
+      );
+      liveTitleRef.current = r.meeting.title || "";
+      setTitle(r.meeting.title || "");
+      setRecTitle(r.meeting.title || r.meeting.id);
+      loadMeetings();
+      if (currentIdRef.current === id) showMeeting(id);
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : String(e));
+    } finally {
+      renamingRef.current = false;
     }
   };
 
@@ -350,6 +395,8 @@ export function App() {
         recError={recError}
         title={title}
         onTitleChange={setTitle}
+        onCommitTitle={handleCommitLiveTitle}
+        onRevertTitle={() => setTitle(liveTitleRef.current)}
         mode={recording && recMode ? recMode : mode}
         onModeChange={handleModeChange}
         language={language}

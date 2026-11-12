@@ -26,6 +26,18 @@ Feature: Rename a meeting
     Then the recording indicator shows "Customer call"
     And the meeting keeps that title after I stop
 
+  Scenario: Rename while recording from the page's title field
+    Given a recording "Untitled call" is active and the page's title field shows "Untitled call"
+    When I change the title field to "Customer call" and press Enter
+    Then the recording indicator shows "Customer call"
+    When I press Stop
+    Then the title field is empty for the next recording
+
+  Scenario: Escape in the title field while recording
+    Given a recording "Standup" is active
+    When I type in the title field and press Escape
+    Then the field shows "Standup" again and nothing is renamed
+
   Scenario: Rename while transcribing
     Given a meeting is being transcribed
     When I rename it to "Customer call"
