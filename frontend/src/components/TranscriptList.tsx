@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Meeting, TranscriptSegment } from "../types";
 import { mmss } from "../utils";
 import { InlineEdit, PencilIcon } from "./InlineEdit";
@@ -12,6 +12,7 @@ interface TranscriptListProps {
   meeting: Meeting;
   segments: TranscriptSegment[];
   activeSpeaker: string | null;
+  focusAt: { index: number; nonce: number } | null;
   playingPosition: { track: string; time: number } | null;
   onPlayFrom: (track: string, start: number) => void;
   /** Throws when the rename is refused. An empty name resets it. */
@@ -23,14 +24,27 @@ export function TranscriptList({
   meeting,
   segments,
   activeSpeaker,
+  focusAt,
   playingPosition,
   onPlayFrom,
   onRenameSpeaker,
   colourOf,
 }: TranscriptListProps) {
   const [editingAt, setEditingAt] = useState<number | null>(null);
+  const [flashAt, setFlashAt] = useState<number | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+
+  useEffect(() => {
+    if (!focusAt) return;
+    setFlashAt(focusAt.index);
+    const row = listRef.current?.children[focusAt.index] as HTMLElement | undefined;
+    row?.scrollIntoView?.({ block: "center" });
+    const timer = setTimeout(() => setFlashAt(null), 2000);
+    return () => clearTimeout(timer);
+  }, [focusAt]);
+
   return (
-    <ol className="transcript" aria-label="Transcript">
+    <ol className="transcript" aria-label="Transcript" ref={listRef}>
       {segments.map((s, idx) => {
         const track = trackOf(meeting, s);
         const isPlaying =
@@ -41,6 +55,7 @@ export function TranscriptList({
         const classes = [
           s.speaker ? "" : "no-speaker",
           isPlaying ? "playing" : "",
+          flashAt === idx ? "focus" : "",
         ]
           .filter(Boolean)
           .join(" ");

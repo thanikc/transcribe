@@ -8,7 +8,7 @@ interface SidebarProps {
   currentId: string | null;
   recording: boolean;
   versionRefreshTick: number;
-  onSelectMeeting: (meetingId: string) => void;
+  onSelectMeeting: (meetingId: string, start?: number) => void;
 }
 
 export function Sidebar({

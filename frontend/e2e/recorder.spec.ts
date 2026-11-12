@@ -82,6 +82,11 @@ test.describe("Meetings Recorder E2E", () => {
     await expect(page.locator("#hits .hit")).toContainText(
       "Let's start with the budget.",
     );
+    await expect(page.locator("#hits .hit mark")).toHaveText("budget");
+    await page.locator("#hits .hit").click();
+    await expect(page.locator("ol.transcript li.focus")).toContainText(
+      "Let's start with the budget.",
+    );
 
     // 8. Delete the meeting
     await page.locator("details.meeting-actions summary").click();

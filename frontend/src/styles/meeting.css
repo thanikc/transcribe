@@ -473,3 +473,20 @@ button.icon {
 .meeting-header .meeting-title-row {
   flex: 1 1 auto;
 }
+
+/* The line a search hit opened: a brief highlight */
+.transcript li.focus {
+  animation: focus-fade 2s ease-out forwards;
+}
+@keyframes focus-fade {
+  from { background: var(--warn-bg); box-shadow: inset 3px 0 0 var(--warn); }
+  70% { background: var(--warn-bg); box-shadow: inset 3px 0 0 var(--warn); }
+  to { background: transparent; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript li.focus {
+    animation: none;
+    background: var(--warn-bg);
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
+}

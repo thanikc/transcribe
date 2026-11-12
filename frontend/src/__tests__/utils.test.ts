@@ -3,7 +3,10 @@ import {
   defaultModelName,
   fileSize,
   formatModelOption,
+  markMatches,
   mmss,
+  nearestSegment,
+  parseMeetingHash,
   parseMeetingIdFromHash,
   percent,
 } from "../utils";
@@ -84,5 +87,40 @@ describe("utils", () => {
     expect(parseMeetingIdFromHash("#/meeting/hello%20world")).toBe(
       "hello world",
     );
+  });
+
+  it("parses the meeting id and the line time from the hash", () => {
+    expect(parseMeetingHash("")).toBeNull();
+    expect(parseMeetingHash("#/meeting/a%3Fb")).toEqual({ id: "a?b", t: null });
+    expect(parseMeetingHash("#/meeting/m-1?t=12.5")).toEqual({ id: "m-1", t: 12.5 });
+    expect(parseMeetingHash("#/meeting/m-1?t=")).toEqual({ id: "m-1", t: null });
+    expect(parseMeetingHash("#/meeting/m-1?t=abc")).toEqual({ id: "m-1", t: null });
+    expect(parseMeetingIdFromHash("#/meeting/m-1?t=3")).toBe("m-1");
+  });
+
+  it("marks matched words case-insensitively, Thai included", () => {
+    expect(markMatches("Let's start with the Budget.", "budget")).toEqual([
+      { text: "Let's start with the ", match: false },
+      { text: "Budget", match: true },
+      { text: ".", match: false },
+    ]);
+    expect(markMatches("ได้ครับ งบประมาณปีนี้", "งบประมาณ")).toEqual([
+      { text: "ได้ครับ ", match: false },
+      { text: "งบประมาณ", match: true },
+      { text: "ปีนี้", match: false },
+    ]);
+    expect(markMatches("a (b) a", "(b)")).toEqual([
+      { text: "a ", match: false },
+      { text: "(b)", match: true },
+      { text: " a", match: false },
+    ]);
+    expect(markMatches("text", "  ")).toEqual([{ text: "text", match: false }]);
+  });
+
+  it("finds the segment nearest a time", () => {
+    const segs = [{ start: 0 }, { start: 3 }, { start: 6 }];
+    expect(nearestSegment(segs, 3.2)).toBe(1);
+    expect(nearestSegment(segs, 100)).toBe(2);
+    expect(nearestSegment([], 1)).toBe(-1);
   });
 });

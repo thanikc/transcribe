@@ -6,6 +6,7 @@ import {
   LANG_LABEL,
   mmss,
   MODE_LABEL,
+  nearestSegment,
   speakerPalette,
   TRACK_LABEL,
 } from "../utils";
@@ -24,6 +25,7 @@ interface MeetingViewProps {
   hasMeetings: boolean;
   detail: MeetingDetail | null;
   detailAt: number;
+  focus: { t: number; nonce: number } | null;
   error: string;
   models: SpeechModelInfo[];
   onDetailUpdated: (detail: MeetingDetail) => void;
@@ -37,6 +39,7 @@ export function MeetingView({
   hasMeetings,
   detail,
   detailAt,
+  focus,
   error,
   models,
   onDetailUpdated,
@@ -56,6 +59,10 @@ export function MeetingView({
     [detail?.segments],
   );
 
+  const [focusAt, setFocusAt] = useState<{
+    index: number;
+    nonce: number;
+  } | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDetailsElement>(null);
 
@@ -63,8 +70,24 @@ export function MeetingView({
     setActiveSpeaker(null);
     setPlayingPosition(null);
     setEditingTitle(false);
+    setFocusAt(null);
     sectionRef.current?.scrollTo?.({ top: 0 });
   }, [currentId]);
+
+  // a search hit: reveal its line if the filter or collapse hides it, then scroll to it
+  const handledFocusRef = useRef(0);
+  useEffect(() => {
+    const segments = detail?.segments;
+    if (!focus || !segments?.length || detail?.meeting.id !== currentId) return;
+    if (handledFocusRef.current === focus.nonce) return;
+    handledFocusRef.current = focus.nonce;
+    const index = nearestSegment(segments, focus.t);
+    if (activeSpeaker && segments[index].speaker !== activeSpeaker) {
+      setActiveSpeaker(null);
+    }
+    if (index >= COLLAPSED_LINES) setCollapsedFor(null);
+    setFocusAt({ index, nonce: focus.nonce });
+  }, [focus, detail, currentId, activeSpeaker]);
 
   const colourOf = (label: string): string => `var(--sp${palette[label] ?? 0})`;
 
@@ -284,6 +307,7 @@ export function MeetingView({
                   meeting={m}
                   segments={visibleSegments || []}
                   activeSpeaker={activeSpeaker}
+                  focusAt={focusAt}
                   playingPosition={playingPosition}
                   onPlayFrom={handlePlayFrom}
                   onRenameSpeaker={handleRenameSpeaker}

@@ -71,8 +71,11 @@ export function defaultModelName(models: SpeechModelInfo[]): string {
   return models.find((m) => m.default)?.name || "";
 }
 
-export function openMeetingHash(id: string): void {
-  const target = "#/meeting/" + encodeURIComponent(id);
+export function openMeetingHash(id: string, start?: number): void {
+  const target =
+    "#/meeting/" +
+    encodeURIComponent(id) +
+    (start != null ? `?t=${start}` : "");
   if (window.location.hash !== target) {
     window.location.hash = target;
   } else {
@@ -80,14 +83,53 @@ export function openMeetingHash(id: string): void {
   }
 }
 
-export function parseMeetingIdFromHash(hash: string): string | null {
-  const m = hash.match(/^#\/meeting\/(.+)$/);
+/** `#/meeting/<id>[?t=<seconds>]`; the id is URI-encoded, so `?` is unambiguous. */
+export function parseMeetingHash(
+  hash: string,
+): { id: string; t: number | null } | null {
+  const m = hash.match(/^#\/meeting\/([^?]+)(?:\?(.*))?$/);
   if (!m) return null;
+  let id: string;
   try {
-    return decodeURIComponent(m[1]);
+    id = decodeURIComponent(m[1]);
   } catch {
     return null;
   }
+  const raw = new URLSearchParams(m[2] || "").get("t");
+  const t = raw !== null && raw !== "" ? Number(raw) : NaN;
+  return { id, t: Number.isFinite(t) ? t : null };
+}
+
+export function parseMeetingIdFromHash(hash: string): string | null {
+  return parseMeetingHash(hash)?.id ?? null;
+}
+
+/** Splits text into plain and matched parts (case-insensitive) for <mark>. */
+export function markMatches(
+  text: string,
+  query: string,
+): { text: string; match: boolean }[] {
+  const q = query.trim();
+  if (!q) return [{ text, match: false }];
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .split(new RegExp(`(${escaped})`, "gi"))
+    .map((part, i) => ({ text: part, match: i % 2 === 1 }))
+    .filter((p) => p.text !== "");
+}
+
+/** Index of the segment whose start is nearest `t`. */
+export function nearestSegment(
+  segments: { start: number }[],
+  t: number,
+): number {
+  let best = -1;
+  for (let i = 0; i < segments.length; i++) {
+    if (best < 0 || Math.abs(segments[i].start - t) < Math.abs(segments[best].start - t)) {
+      best = i;
+    }
+  }
+  return best;
 }
 
 /** Colour index per raw speaker label, in order of first appearance. */

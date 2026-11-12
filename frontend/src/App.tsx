@@ -12,6 +12,7 @@ import type {
 import {
   defaultModelName,
   openMeetingHash,
+  parseMeetingHash,
   parseMeetingIdFromHash,
 } from "./utils";
 
@@ -74,6 +75,9 @@ export function App() {
   const detailRef = useRef<MeetingDetail | null>(null);
   const [detailAt, setDetailAt] = useState(0);
   const [viewError, setViewError] = useState("");
+  // a line to scroll to (search hit); the nonce makes the same hit scroll again
+  const [focus, setFocus] = useState<{ t: number; nonce: number } | null>(null);
+  const focusNonceRef = useRef(0);
   const viewTokenRef = useRef(0);
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -241,7 +245,11 @@ export function App() {
   );
 
   const routeFromHash = useCallback(() => {
-    const id = parseMeetingIdFromHash(window.location.hash);
+    const target = parseMeetingHash(window.location.hash);
+    const id = target?.id;
+    setFocus(
+      target?.t != null ? { t: target.t, nonce: ++focusNonceRef.current } : null,
+    );
     if (id) {
       showMeeting(id);
     } else {
@@ -422,6 +430,7 @@ export function App() {
           hasMeetings={meetings.length > 0}
           detail={detail}
           detailAt={detailAt}
+          focus={focus}
           error={viewError}
           models={models}
           onDetailUpdated={(updated) => {

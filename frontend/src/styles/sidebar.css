@@ -136,3 +136,10 @@ footer button {
   font-size: var(--text-xs);
   padding: 0 var(--sp-2);
 }
+
+.hit mark {
+  background: var(--warn-bg);
+  color: inherit;
+  font-weight: 600;
+  box-shadow: 0 1px 0 var(--warn);
+}
