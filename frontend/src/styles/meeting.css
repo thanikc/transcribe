@@ -194,7 +194,7 @@
 }
 
 .filter-pill {
-  height: 24px;
+  height: 28px;
   padding: 0 var(--sp-2);
   font-size: var(--text-xs);
   border-radius: var(--radius-sm);
@@ -278,12 +278,14 @@ button.icon {
 }
 
 .ts {
-  height: auto;
+  /* a 28px hit area; the negative margin keeps the text where it was */
+  height: 28px;
+  margin: -6px 0;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-  padding: 0;
+  padding: 0 var(--sp-1);
   background: none;
   border: 0;
   cursor: pointer;
@@ -500,5 +502,18 @@ button.icon {
     animation: none;
     background: var(--warn-bg);
     box-shadow: 0 2px 0 var(--warn);
+  }
+}
+
+/* Touch: finger-sized targets */
+@media (pointer: coarse) {
+  .ts,
+  .filter-pill,
+  button.icon {
+    height: 40px;
+    min-width: 40px;
+  }
+  .ts {
+    margin: -12px 0;
   }
 }
