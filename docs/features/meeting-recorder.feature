@@ -240,6 +240,11 @@ Feature: Record, transcribe and read local meetings
     Then I see its transcript with timestamps and speakers
     And an audio player for the mic track and one for the system track
 
+  Scenario: A speaker keeps their colour
+    Given a transcribed meeting with "Speaker 1" and "Speaker 2"
+    When I open it, open another meeting, and open it again
+    Then "Speaker 1" has the same colour both times, the first colour of the palette
+
   Scenario: Audio keeps playing while the meeting is transcribing
     Given a meeting with status "transcribing"
     And I am playing its mic track on the web page

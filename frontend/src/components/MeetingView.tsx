@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { MeetingDetail, SpeechModelInfo } from "../types";
 import {
@@ -6,6 +6,7 @@ import {
   LANG_LABEL,
   mmss,
   MODE_LABEL,
+  speakerPalette,
   TRACK_LABEL,
 } from "../utils";
 import { AudioBar } from "./AudioBar";
@@ -46,19 +47,17 @@ export function MeetingView({
     track: string;
     time: number;
   } | null>(null);
-  const paletteRef = useRef<Record<string, number>>({});
+  const palette = useMemo(
+    () => speakerPalette(detail?.segments),
+    [detail?.segments],
+  );
 
   useEffect(() => {
     setActiveSpeaker(null);
     setPlayingPosition(null);
   }, [currentId]);
 
-  const colourOf = (label: string): string => {
-    if (!(label in paletteRef.current)) {
-      paletteRef.current[label] = Object.keys(paletteRef.current).length % 6;
-    }
-    return `var(--sp${paletteRef.current[label]})`;
-  };
+  const colourOf = (label: string): string => `var(--sp${palette[label] ?? 0})`;
 
   const handleRenameMeeting = async (currentTitle: string) => {
     if (!currentId) return;

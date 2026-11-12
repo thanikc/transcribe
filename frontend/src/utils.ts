@@ -1,4 +1,8 @@
-import type { SpeechModelInfo, TranscriptionProgress } from "./types";
+import type {
+  SpeechModelInfo,
+  TranscriptionProgress,
+  TranscriptSegment,
+} from "./types";
 
 export const STATUS_LABEL: Record<string, string> = {
   recording: "recording",
@@ -89,4 +93,16 @@ export function parseMeetingIdFromHash(hash: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Colour index per raw speaker label, in order of first appearance. */
+export function speakerPalette(
+  segments: TranscriptSegment[] | null | undefined,
+): Record<string, number> {
+  const palette: Record<string, number> = {};
+  let next = 0;
+  for (const s of segments || []) {
+    if (s.speaker && !(s.speaker in palette)) palette[s.speaker] = next++ % 6;
+  }
+  return palette;
 }
