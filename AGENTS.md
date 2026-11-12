@@ -23,7 +23,7 @@ verified on Windows. Tray tests use a fake `pystray` and `winreg`. The installer
 ```
 src/transcribe/
   domain.py      pure: Meeting, Segment, Status, ids, transitions, speakers, merge/render/search
-  store.py       MeetingStore: <data dir>/<id>/{meeting.json, mic.wav, system.wav, transcript.json}
+  store.py       MeetingStore: <data dir>/<id>/{meeting.json, mic.mp3, system.mp3, transcript.json}
   recorder.py    port Protocols (AudioCapture, SpeechToText, SpeakerDiarizer) + Recorder orchestration
   capture.py     soundcard adapter      stt.py      faster-whisper adapter
   diarize.py     sherpa-onnx adapter

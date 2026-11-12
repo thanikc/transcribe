@@ -105,7 +105,16 @@ def test_delete_removes_folder(store):
 def test_track_path(store):
     meeting = make_meeting(mode="mic+system")
     store.create(meeting)
-    assert store.track_path(meeting.id, "system") == store.data_dir / meeting.id / "system.wav"
+    assert store.track_path(meeting.id, "system") == store.data_dir / meeting.id / "system.mp3"
+
+
+def test_track_path_finds_wav_tracks_of_older_meetings(store):
+    meeting = make_meeting(mode="mic+system")
+    store.create(meeting)
+    folder = store.data_dir / meeting.id
+    (folder / "mic.wav").write_bytes(b"RIFF")
+    assert store.track_path(meeting.id, "mic") == folder / "mic.wav"
+    assert store.track_path(meeting.id, "system") == folder / "system.mp3"
 
 
 def test_track_path_unknown_track(store):

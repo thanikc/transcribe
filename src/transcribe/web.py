@@ -128,7 +128,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         path = recorder.store.track_path(request.path_params["id"], request.path_params["track"])
         if not path.is_file():
             return _error("that recording has no audio file", 404)
-        return FileResponse(path, media_type="audio/wav")
+        return FileResponse(path, media_type="audio/wav" if path.suffix == ".wav" else "audio/mpeg")
 
     async def transcribe(request: Request) -> Response:
         data = await _body(request, optional=("language",))

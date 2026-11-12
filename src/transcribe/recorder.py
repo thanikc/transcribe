@@ -39,12 +39,12 @@ class CaptureError(DomainError):
 
 class CaptureSession(Protocol):
     def stop(self) -> None:
-        """Stop all tracks and close their WAV files."""
+        """Stop all tracks and close their audio files."""
 
 
 class AudioCapture(Protocol):
     def start(self, track_paths: dict[str, Path]) -> CaptureSession:
-        """Start streaming each track to its WAV file. Raises CaptureError if a device can't open."""
+        """Start streaming each track to its audio file. Raises CaptureError if a device can't open."""
 
 
 # Called from the worker thread with the share of the work done so far, 0.0 to 1.0.
@@ -55,12 +55,12 @@ class SpeechToText(Protocol):
     def transcribe(
         self, wav: Path, language: str | None, on_progress: ProgressCallback
     ) -> tuple[list[Segment], str]:
-        """Track WAV + language (None = detect) -> (segments without speakers, detected language)."""
+        """Track audio + language (None = detect) -> (segments without speakers, detected language)."""
 
 
 class SpeakerDiarizer(Protocol):
     def diarize(self, wav: Path, on_progress: ProgressCallback) -> list[SpeakerTurn]:
-        """Track WAV -> speaker turns with raw labels."""
+        """Track audio -> speaker turns with raw labels."""
 
 
 def _in_thread(job: Callable[[], None]) -> None:
@@ -95,18 +95,20 @@ class Recorder:
             raise InvalidChoice(f'language must be one of {", ".join(LANGUAGES)}, not "{language}"')
 
     def status(self) -> dict:
-        with self._lock:
-            if self._active is None:
-                return {"recording": False}
-            meeting = self._active[0]
-            return {
-                "recording": True,
-                "meeting_id": meeting.id,
-                "title": meeting.title,
-                "mode": meeting.mode,
-                "language": meeting.language,
-                "elapsed": (self.clock() - meeting.started_at).total_seconds(),
-            }
+        # No lock: start() holds _lock while devices open, and the page polls this every second.
+        # _active is swapped as one tuple, so reading it once gives a consistent snapshot.
+        active = self._active
+        if active is None:
+            return {"recording": False}
+        meeting = active[0]
+        return {
+            "recording": True,
+            "meeting_id": meeting.id,
+            "title": meeting.title,
+            "mode": meeting.mode,
+            "language": meeting.language,
+            "elapsed": (self.clock() - meeting.started_at).total_seconds(),
+        }
 
     def progress(self, meeting_id: str) -> dict | None:
         """Current step of a running transcription, or None when none is running."""

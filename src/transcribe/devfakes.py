@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import wave
 from pathlib import Path
 from typing import Callable
 
@@ -24,12 +23,11 @@ class FakeSession:
 
 class FakeCapture:
     def start(self, track_paths: dict[str, Path]) -> FakeSession:
+        from transcribe.capture import Mp3Writer
+
         for path in track_paths.values():
-            with wave.open(str(path), "wb") as w:
-                w.setnchannels(1)
-                w.setsampwidth(2)
-                w.setframerate(16000)
-                w.writeframes(b"\x00\x00" * 16000)
+            with Mp3Writer(path) as mp3:
+                mp3.write([0.0] * 16000)  # a second of silence
         return FakeSession()
 
 

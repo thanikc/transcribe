@@ -108,4 +108,5 @@ def transcript_text(detail: dict) -> str:
 
 
 def hit_line(hit: dict) -> str:
-    return f"{hit['meeting_id']} {hit['timestamp']} {hit['speaker']}: {hit['text']}"
+    speaker = f"{hit['speaker']}: " if hit["speaker"] else ""
+    return f"{hit['meeting_id']} {hit['timestamp']} {speaker}{hit['text']}"

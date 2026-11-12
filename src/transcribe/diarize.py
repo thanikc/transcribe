@@ -6,7 +6,6 @@ import shutil
 import tarfile
 import threading
 import urllib.request
-import wave
 from pathlib import Path
 from typing import Callable
 
@@ -24,17 +23,23 @@ def _download(url: str, dest: Path) -> None:
     part.replace(dest)  # replace, not rename: Windows refuses to rename over a leftover file
 
 
-def _read_mono(wav: Path, rate: int):
+def _read_mono(audio: Path, rate: int):
+    """The track (MP3, or WAV from older meetings) as float32 mono at `rate`, decoded piece by piece."""
+    import av
     import numpy as np
 
-    with wave.open(str(wav), "rb") as w:
-        src_rate, channels = w.getframerate(), w.getnchannels()
-        data = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
-    mono = data.reshape(-1, channels).mean(axis=1).astype("float32") / 32768
-    if src_rate != rate:
-        n = int(len(mono) * rate / src_rate)
-        mono = np.interp(np.linspace(0, len(mono) - 1, n), np.arange(len(mono)), mono).astype("float32")
-    return mono
+    # Planar, channels kept: averaged here, since FFmpeg's downmix adds them at -3 dB and can clip.
+    resampler = av.AudioResampler(format="fltp", rate=rate)
+    pieces = []
+
+    def keep(frames) -> None:
+        pieces.extend(f.to_ndarray().mean(axis=0, dtype="float32") for f in frames)
+
+    with av.open(str(audio)) as container:
+        for frame in container.decode(audio=0):
+            keep(resampler.resample(frame))
+    keep(resampler.resample(None))
+    return np.concatenate(pieces) if pieces else np.zeros(0, dtype="float32")
 
 
 class SherpaDiarizer:

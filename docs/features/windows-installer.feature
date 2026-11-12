@@ -119,7 +119,7 @@ Feature: Install and run the recorder from a Windows installer and a tray icon
   Scenario: Quit
     When I choose "Quit"
     Then the service stops and the tray icon disappears
-    But if a recording is running, the recording is stopped first so its WAV files are closed properly
+    But if a recording is running, the recording is stopped first so its audio files are closed properly
     And on the next start that meeting shows as failed ("interrupted") and can be transcribed again
 
   Scenario: Uninstall keeps meetings

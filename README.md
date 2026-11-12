@@ -7,7 +7,7 @@ transcripts from Claude Desktop.
 - **Two capture modes:** `mic` for in-person meetings, and `mic+system` for online calls (microphone plus what your speakers play).
 - **Transcribe** locally with Whisper (`large-v3`); audio never leaves the machine.
 - **Speakers** are told apart by voice (sherpa-onnx), and you can give them names.
-- **Storage:** everything is kept under `~/Meetings/<meeting id>/` (WAV audio, `meeting.json`, `transcript.json`).
+- **Storage:** everything is kept under `~/Meetings/<meeting id>/` (MP3 audio, `meeting.json`, `transcript.json`).
 
 ## Install (Windows)
 
