@@ -1,6 +1,6 @@
 // The recording panel: start/stop, the status line and the status poll.
 
-import { $, api, mmss } from "./util.js";
+import { $, api, el, mmss, TRACK_LABEL } from "./util.js";
 import { state } from "./state.js";
 import { loadMeetings } from "./list.js";
 import { openMeeting } from "./nav.js";
@@ -24,6 +24,29 @@ export function renderStatus() {
   renderUpdateButton();
 }
 
+// Per track, when it last had sound, so a silent device (wrong default, muted headset) shows as such.
+const QUIET = 10 ** (-50 / 20), SILENT_AFTER_MS = 10000;
+let heard = {};
+
+// The level as a share of a -60…0 dB scale: speech then fills about half the bar instead of a sliver.
+const fill = (level) => Math.min(1, Math.max(0, (20 * Math.log10(level || 1e-6) + 60) / 60));
+
+function renderMeters(levels) {
+  const box = $("meters");
+  if (!levels) { box.hidden = true; box.replaceChildren(); heard = {}; return; }
+  const now = performance.now();
+  const rows = [];
+  for (const [track, level] of Object.entries(levels)) {
+    if (!(track in heard) || level > QUIET) heard[track] = now;
+    const silent = now - heard[track] > SILENT_AFTER_MS;
+    const bar = el("div", { class: "bar", "aria-hidden": "true" }, el("span", { style: `width:${Math.round(fill(level) * 100)}%` }));
+    rows.push(el("span", { text: TRACK_LABEL[track] || track }), bar,
+      el("span", { class: silent ? "quiet" : "muted", text: silent ? "no sound" : "" }));
+  }
+  box.replaceChildren(...rows);
+  box.hidden = false;
+}
+
 function showRecError(msg) { $("rec-error").textContent = msg || ""; }
 
 export async function pollStatus() {
@@ -37,6 +60,7 @@ export async function pollStatus() {
     }
     if (wasRec !== state.recording) loadMeetings();
     renderStatus();
+    renderMeters(st.recording ? st.levels : null);
   } catch (e) { /* transient; try again next tick */ }
 }
 

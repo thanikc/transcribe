@@ -86,7 +86,7 @@ def test_start_stop_round_trip(rig: Rig) -> None:
 def test_status_shows_recording_started_elsewhere(rig: Rig) -> None:
     rig.recorder.start("From the CLI", "mic")
     status = rig.client.get("/api/status").json()
-    assert status["recording"] is True and status["title"] == "From the CLI"
+    assert status["recording"] is True and status["title"] == "From the CLI" and status["levels"] == {}
 
 
 def test_second_start_and_stop_without_recording_conflict(rig: Rig) -> None:

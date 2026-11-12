@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from pathlib import Path
 from typing import Callable
@@ -17,8 +18,16 @@ TURNS = [SpeakerTurn(0, 3, "A"), SpeakerTurn(3, 6, "B"), SpeakerTurn(6, 9, "A")]
 
 
 class FakeSession:
+    def __init__(self, tracks: list[str]) -> None:
+        self.tracks = tracks
+
     def stop(self) -> None:
         pass
+
+    def levels(self) -> dict[str, float]:
+        # Speech-like: loud and quiet stretches; the system track stays silent to show "no sound".
+        loud = abs(math.sin(time.monotonic() * 1.7)) * 0.6
+        return {t: (loud if t == "mic" else 0.0) for t in self.tracks}
 
 
 class FakeCapture:
@@ -28,7 +37,7 @@ class FakeCapture:
         for path in track_paths.values():
             with Mp3Writer(path) as mp3:
                 mp3.write([0.0] * 16000)  # a second of silence
-        return FakeSession()
+        return FakeSession(list(track_paths))
 
 
 class FakeSpeechToText:

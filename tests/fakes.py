@@ -13,6 +13,9 @@ class FakeSession:
     def stop(self) -> None:
         pass
 
+    def levels(self) -> dict[str, float]:
+        return {}
+
 
 class FakeCapture:
     def start(self, track_paths: dict[str, Path]) -> FakeSession:

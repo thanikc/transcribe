@@ -17,6 +17,7 @@ recordings and shows them.
 | **Speaker** | Who a segment is attributed to. In `mic+system` mode the mic track is always `You`. The system track (and the mic track in `mic` mode) is **diarized** into `Speaker 1`, `Speaker 2`, …, numbered by order of first appearance. If diarization fails, the track falls back to `Others` (system) or no label (`mic` mode). |
 | **Diarization** | Splitting a track into **speaker turns** (start, end, speaker) by voice, done locally with sherpa-onnx. Whisper gives word times, so a segment whose words fall in different speakers' turns is split there; a stretch under 1 s is not split off, since diarization flickers. A segment without word times, or not split, gets the speaker whose turns overlap it the most. |
 | **Speaker name** | A display name you give a speaker label for one meeting (`Speaker 2` → `Somchai`). It changes how the transcript is rendered, not the stored segments. |
+| **Level** | While recording, the loudest sample (0–1) of a track's last half second of audio. Kept in memory only. |
 | **Segment** | One transcribed span: start/end seconds, speaker, text. |
 | **Echo** | In `mic+system` mode, a mic segment that repeats the system audio of the same moment: without headphones the mic hears the speakers. Echoes are left out of the transcript. |
 | **Transcript** | The segments of all tracks merged in start-time order. |
@@ -48,7 +49,7 @@ Invariants:
 
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
-| `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
+| `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped, reporting each track's level | No device or loopback unavailable → start fails and no meeting is left behind |
 | `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) + vocabulary → segments with word times + detected language. Word times are used for splitting only and are not stored | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
 | `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns, on up to 4 CPU threads | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
@@ -69,7 +70,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 ```
 
 - **Recorder service** (`transcribe serve`): Starlette + uvicorn, which are already dependencies of `mcp`. JSON API:
-  `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language, model?}`,
+  `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds, `levels` per track), `POST /api/recordings/start {title, mode, language, model?}`,
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
   `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?, model?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `POST /api/meetings/{id}/notes {notes}` (replace; empty removes; the meeting JSON carries `notes`), `POST /api/meetings/{id}/title {title}` (rename; the id stays), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`, `GET /api/models` (the speech models to choose from: `{name, size, downloaded, default}`).
   `stop` returns at once. Transcription runs on one background thread, one meeting at a time in the order asked for, and the status is shown in the meeting listings.
@@ -79,7 +80,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
   The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null
   until the step reports, e.g. while the model loads. Progress is kept in memory only.
 - **Web UI** (`GET /`): one static HTML page with vanilla JS split into ES modules under `/static/js/` (no build step), which polls `/api/status` every second while its tab is visible. A hidden tab asks nothing and refreshes when it is shown again.
-  - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), speech model picker (remembered in the browser; a model not yet on the computer says how much it downloads on first use), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
+  - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), speech model picker (remembered in the browser; a model not yet on the computer says how much it downloads on first use), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time, and under it a level meter per track (-60…0 dB) that says "no sound" once a track has stayed below -50 dB for 10 seconds.
   - A meetings list: newest first, with status badges that update while transcribing.
   - A meeting view: its title (click to rename), its notes (plain text, above the transcript), transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track (kept playing while progress refreshes) with a "Play through" output-device picker (the browser default follows the Windows default output; the choice is remembered in the browser; hidden where the browser can't switch outputs), the language (forced or detected), the speech model, and a "Transcribe again" button with a language picker and a speech model picker, for a failed meeting, one where auto-detection got the language wrong, or to try the other model. A "Delete meeting" button (transcribed or failed meetings only) asks for confirmation first.
   - Fonts: a system font stack that includes Thai faces (`Leelawadee UI`, `Noto Sans Thai`) and `<meta charset="utf-8">`.

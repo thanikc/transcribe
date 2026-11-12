@@ -375,3 +375,48 @@ def test_whisper_is_given_the_vocabulary_as_hotwords(tmp_path, vocabulary, hotwo
     stt._model, stt._loaded = Model(), "tiny"
     stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny", vocabulary)
     assert given == [hotwords]
+
+
+def test_capture_reports_the_loudest_sample_of_each_tracks_last_block(monkeypatch, tmp_path):
+    import threading
+
+    import numpy as np
+
+    from transcribe import capture
+
+    gate = {track: threading.Semaphore(0) for track in ("mic", "system")}
+    peaks = {"mic": 0.5, "system": 0.0}
+
+    class Device:
+        def __init__(self, track):
+            self.track = track
+
+        def recorder(self, samplerate):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def record(self, numframes):
+            gate[self.track].acquire(timeout=5)
+            block = np.zeros((numframes, 2), dtype="float32")
+            block[10, 1] = -peaks[self.track]  # a negative peak counts as loud as a positive one
+            return block
+
+    monkeypatch.setattr(capture, "_open_device", Device)
+    session = capture.SoundcardCapture().start({t: tmp_path / f"{t}.mp3" for t in ("mic", "system")})
+    assert session.levels() == {"mic": 0.0, "system": 0.0}  # nothing captured yet
+    for g in gate.values():
+        g.release()
+    for _ in range(100):
+        if session.levels()["mic"]:
+            break
+        threading.Event().wait(0.01)
+    # Stereo blocks are averaged to mono first, as written to the file.
+    assert session.levels() == {"mic": 0.25, "system": 0.0}
+    for g in gate.values():
+        g.release(5)
+    session.stop()

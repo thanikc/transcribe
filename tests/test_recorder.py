@@ -44,6 +44,10 @@ class FakeSession:
     def __init__(self, fail: Exception | None = None) -> None:
         self.stopped = False
         self.fail = fail
+        self.peaks: dict[str, float] = {}
+
+    def levels(self) -> dict[str, float]:
+        return self.peaks
 
     def stop(self) -> None:
         self.stopped = True
@@ -63,7 +67,8 @@ class FakeCapture:
         self.paths = track_paths
         for path in track_paths.values():
             path.touch()
-        return FakeSession(self.stop_error)
+        self.session = FakeSession(self.stop_error)
+        return self.session
 
 
 class FakeSTT:
@@ -355,7 +360,14 @@ def test_status_reports_elapsed(rig: Rig) -> None:
         "mode": "mic",
         "language": "th",
         "elapsed": 12.5,
+        "levels": {},
     }
+
+
+def test_status_reports_each_tracks_sound_level(rig: Rig) -> None:
+    rig.recorder.start("Call", "mic+system")
+    rig.capture.session.peaks = {"mic": 0.25, "system": 0.0}
+    assert rig.recorder.status()["levels"] == {"mic": 0.25, "system": 0.0}
 
 
 def _two_speaker_meeting(rig: Rig) -> Meeting:

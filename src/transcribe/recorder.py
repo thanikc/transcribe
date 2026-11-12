@@ -58,6 +58,9 @@ class CaptureSession(Protocol):
     def stop(self) -> None:
         """Stop all tracks and close their audio files."""
 
+    def levels(self) -> dict[str, float]:
+        """Per track, the loudest sample (0 to 1) of the audio captured last; 0 before any."""
+
 
 class AudioCapture(Protocol):
     def start(self, track_paths: dict[str, Path]) -> CaptureSession:
@@ -171,7 +174,7 @@ class Recorder:
         active = self._active
         if active is None:
             return {"recording": False}
-        meeting = active[0]
+        meeting, session = active
         return {
             "recording": True,
             "meeting_id": meeting.id,
@@ -179,6 +182,7 @@ class Recorder:
             "mode": meeting.mode,
             "language": meeting.language,
             "elapsed": (self.clock() - meeting.started_at).total_seconds(),
+            "levels": session.levels(),
         }
 
     def progress(self, meeting_id: str) -> dict | None:

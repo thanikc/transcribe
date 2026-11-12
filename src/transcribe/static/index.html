@@ -45,6 +45,10 @@ button:disabled { opacity: .55; cursor: default; }
 .row > div { flex: 1 1 150px; }
 #status { margin: 14px 0 0; font-weight: 600; }
 #status.rec { color: var(--danger); }
+#meters { display: grid; grid-template-columns: max-content 1fr max-content; gap: 4px 8px; align-items: center; margin-top: 6px; font-size: .85rem; }
+#meters .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+#meters .bar span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+#meters .quiet { color: var(--danger); font-weight: 600; }
 .err { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); border-radius: 6px;
   padding: 6px 10px; margin-top: 10px; }
 .err:empty { display: none; }
@@ -113,6 +117,7 @@ footer button { font-size: .85rem; padding: 3px 10px; }
       <select id="model"></select>
       <p style="margin:14px 0 0"><button type="button" id="toggle" class="primary">Start recording</button></p>
       <p id="status" role="status" aria-live="polite">Not recording</p>
+      <div id="meters" hidden></div>
       <div id="rec-error" class="err" role="alert"></div>
     </section>
 
