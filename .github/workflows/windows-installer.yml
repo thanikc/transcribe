@@ -76,4 +76,10 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME (Get-Item dist\*.exe).FullName --generate-notes
+        run: |
+          # A release made on the GitHub page already exists by now; one made by pushing a tag does not.
+          $installer = (Get-Item dist\*.exe).FullName
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) { gh release upload $env:GITHUB_REF_NAME $installer --clobber }
+          else { gh release create $env:GITHUB_REF_NAME $installer --generate-notes }
+          exit $LASTEXITCODE
