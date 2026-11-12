@@ -72,3 +72,47 @@ export function fakeServer(opts: {
   });
   return { spy, calls };
 }
+
+/** Replaces XMLHttpRequest (used for uploads); each request waits for the test to answer it. */
+export function fakeUploads() {
+  const requests: FakeXhr[] = [];
+  class FakeXhr {
+    method = "";
+    url = "";
+    headers: Record<string, string> = {};
+    body: unknown;
+    status = 0;
+    responseText = "";
+    upload: {
+      onprogress: ((e: { lengthComputable: boolean; loaded: number; total: number }) => void) | null;
+      onload: (() => void) | null;
+    } = { onprogress: null, onload: null };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    open(method: string, url: string) {
+      this.method = method;
+      this.url = url;
+    }
+    setRequestHeader(k: string, v: string) {
+      this.headers[k] = v;
+    }
+    send(body: unknown) {
+      this.body = body;
+      requests.push(this);
+    }
+    progress(loaded: number, total: number) {
+      this.upload.onprogress?.({ lengthComputable: true, loaded, total });
+      if (loaded >= total) this.upload.onload?.();
+    }
+    respond(status: number, data: unknown) {
+      this.status = status;
+      this.responseText = JSON.stringify(data);
+      this.onload?.();
+    }
+    fail() {
+      this.onerror?.();
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeXhr);
+  return requests;
+}

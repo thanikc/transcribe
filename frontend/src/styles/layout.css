@@ -263,3 +263,45 @@ main {
     width: min(300px, 92vw);
   }
 }
+
+/* Shown while a file is dragged over the page */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  border: 3px dashed var(--accent);
+  pointer-events: none;
+}
+.drop-overlay p {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-6);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+
+.import-file-name {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.import-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+.import-progress progress {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--accent);
+}

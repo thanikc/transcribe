@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SpeechModelInfo } from "../types";
 import { mmss } from "../utils";
-import { ImportDrawer } from "./ImportDrawer";
+import { ImportDrawer, type DroppedFile } from "./ImportDrawer";
 import { LevelMeters } from "./LevelMeters";
 import { SettingsDrawer } from "./SettingsDrawer";
 
@@ -33,6 +33,7 @@ interface TopDockProps {
   models: SpeechModelInfo[];
   onToggleRecording: () => void;
   onImported: (meetingId: string) => Promise<void> | void;
+  dropped: DroppedFile | null;
 }
 
 export function TopDock({
@@ -57,6 +58,7 @@ export function TopDock({
   models,
   onToggleRecording,
   onImported,
+  dropped,
 }: TopDockProps) {
   const [, setTick] = useState(0);
 
@@ -72,7 +74,7 @@ export function TopDock({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         for (const d of document.querySelectorAll<HTMLDetailsElement>(
-          "details.popover[open]",
+          "details.popover[open]:not([data-busy])",
         )) {
           d.open = false;
         }
@@ -82,7 +84,7 @@ export function TopDock({
       // the path, not contains(): the clicked button may already be re-rendered away
       const path = e.composedPath();
       for (const d of document.querySelectorAll<HTMLDetailsElement>(
-        "details.popover[open]",
+        "details.popover[open]:not([data-busy])",
       )) {
         if (!path.includes(d)) {
           d.open = false;
@@ -192,6 +194,7 @@ export function TopDock({
             models={models}
           />
           <ImportDrawer
+            dropped={dropped}
             language={language}
             model={model}
             onImported={onImported}

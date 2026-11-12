@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { fakeServer, jsonResponse, meeting } from "./fakeServer";
+import { fakeServer, fakeUploads, jsonResponse, meeting } from "./fakeServer";
 
 function recordingServer() {
   let recording = false;
@@ -89,19 +89,18 @@ describe("import title", () => {
   beforeEach(() => {
     window.location.hash = "";
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   function importServer() {
-    return fakeServer({
-      route: (url) =>
-        url.includes("/api/meetings/import")
-          ? jsonResponse({ meeting: meeting({ id: "imp", status: "transcribing" }) }, 201)
-          : undefined,
-    });
+    fakeServer();
+    return fakeUploads();
   }
 
   it("uses its own title, not the recording title", async () => {
-    const { calls } = importServer();
+    const uploads = importServer();
     render(<App />);
     await userEvent.type(screen.getByPlaceholderText("Meeting title…"), "Not this");
     await userEvent.upload(
@@ -110,14 +109,12 @@ describe("import title", () => {
     );
     await userEvent.type(screen.getByLabelText("Title", { selector: "#import-title" }), "Standup");
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
-    await waitFor(() => {
-      const url = calls.find((c) => c.url.includes("/import"))!.url;
-      expect(new URL(url, "http://x").searchParams.get("title")).toBe("Standup");
-    });
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    expect(new URL(uploads[0].url, "http://x").searchParams.get("title")).toBe("Standup");
   });
 
   it("an empty title uses the file name, shown as the placeholder", async () => {
-    const { calls } = importServer();
+    const uploads = importServer();
     render(<App />);
     await userEvent.upload(
       screen.getByLabelText("Import audio file"),
@@ -128,12 +125,10 @@ describe("import title", () => {
       "standup",
     );
     expect(
-      screen.getByText("Transcribed as Auto · large-v3. Change these in Settings."),
+      screen.getByText(/^Transcribed as Auto · large-v3\. Change these in Settings\./),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
-    await waitFor(() => {
-      const url = calls.find((c) => c.url.includes("/import"))!.url;
-      expect(new URL(url, "http://x").searchParams.get("title")).toBe("standup");
-    });
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    expect(new URL(uploads[0].url, "http://x").searchParams.get("title")).toBe("standup");
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { MeetingView } from "./components/MeetingView";
 import { Sidebar } from "./components/Sidebar";
+import type { DroppedFile } from "./components/ImportDrawer";
 import { TopDock } from "./components/TopDock";
 import { IDLE_ICON, RECORDING_ICON } from "./favicon";
 import type {
@@ -83,6 +84,10 @@ export function App() {
   const focusNonceRef = useRef(0);
   const viewTokenRef = useRef(0);
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // A file dragged onto the page, handed to the import panel
+  const [dragging, setDragging] = useState(false);
+  const [dropped, setDropped] = useState<DroppedFile | null>(null);
 
   // Version refresh trigger
   const [versionRefreshTick, setVersionRefreshTick] = useState(0);
@@ -324,6 +329,52 @@ export function App() {
   }, [pollStatus, loadMeetings]);
 
   useEffect(() => {
+    let depth = 0; // dragenter/leave fire for every child crossed
+    const hasFiles = (e: DragEvent) =>
+      !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setDragging(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); // or the browser opens the file
+      depth = 0;
+      setDragging(false);
+      const files = Array.from(e.dataTransfer?.files || []);
+      const media = files.find(
+        (f) => f.type.startsWith("audio/") || f.type.startsWith("video/"),
+      );
+      setDropped((prev) => ({
+        file: media || null,
+        error: media
+          ? ""
+          : `${files[0]?.name || "That file"} is not an audio or video file.`,
+        nonce: (prev?.nonce || 0) + 1,
+      }));
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  useEffect(() => {
     document.title = recording ? "● Recording – Meetings" : "Meetings";
     document
       .getElementById("favicon")
@@ -433,7 +484,13 @@ export function App() {
         models={models}
         onToggleRecording={handleToggleRecording}
         onImported={handleImported}
+        dropped={dropped}
       />
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <p>Drop to import</p>
+        </div>
+      )}
 
       <main>
         <Sidebar

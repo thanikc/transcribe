@@ -100,4 +100,46 @@ test.describe("Meetings Recorder E2E", () => {
       /^No meetings yet\./,
     );
   });
+
+  test("imports an audio file chosen in the import panel", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#import-drawer summary").click();
+    await page.locator("#import-file").setInputFiles({
+      name: "standup.wav",
+      mimeType: "audio/wav",
+      buffer: silentWav(1),
+    });
+    await expect(page.locator("#import-title")).toHaveAttribute("placeholder", "standup");
+    await page.locator("#import-title").fill("E2E Import");
+    await page.locator("#import").click();
+
+    await expect(page.locator("button.title-edit")).toHaveText("E2E Import");
+    await expect(page.locator("ol.transcript")).toBeVisible({ timeout: 20_000 });
+
+    // leave the service empty for the other test
+    await page.locator("details.meeting-actions summary").click();
+    await page.locator("button.danger", { hasText: "Delete meeting" }).click();
+    await page.locator(".confirm-delete button.danger").click();
+    await expect(page.locator("#no-meetings")).toBeVisible();
+  });
 });
+
+/** A mono 16 kHz 16-bit WAV of silence. */
+function silentWav(seconds: number): Buffer {
+  const rate = 16000;
+  const data = rate * seconds * 2;
+  const b = Buffer.alloc(44 + data);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + data, 4);
+  b.write("WAVEfmt ", 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(data, 40);
+  return b;
+}
