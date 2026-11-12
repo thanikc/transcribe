@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from transcribe.domain import Segment
+from transcribe.domain import Segment, Word
 from transcribe.recorder import OutOfMemory
 
 log = logging.getLogger(__name__)
@@ -80,10 +80,10 @@ class WhisperSpeechToText:
             return self._model
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         try:
-            return self._transcribe(wav, language, on_progress, model)
+            return self._transcribe(wav, language, on_progress, model, vocabulary)
         except Exception as e:
             if not _is_out_of_memory(e):
                 raise
@@ -92,14 +92,22 @@ class WhisperSpeechToText:
             raise OutOfMemory(model) from e
 
     def _transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         started = time.monotonic()
         # Lazy generator: the decoding happens while iterating, so progress follows it.
-        segments, info = self._load(model).transcribe(str(wav), language=language, vad_filter=True)
+        segments, info = self._load(model).transcribe(
+            str(wav),
+            language=language,
+            vad_filter=True,
+            word_timestamps=True,  # to split lines at speaker changes
+            # Unlike initial_prompt, hotwords prime every 30 s window, not only the first.
+            hotwords=", ".join(vocabulary) or None,
+        )
         result = []
         for s in segments:
-            result.append(Segment(s.start, s.end, s.text.strip()))
+            words = tuple(Word(w.start, w.end, w.word) for w in s.words or ())
+            result.append(Segment(s.start, s.end, s.text.strip(), words=words))
             if info.duration:
                 on_progress(s.end / info.duration)
         on_progress(1.0)

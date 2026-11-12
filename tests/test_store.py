@@ -233,3 +233,45 @@ def test_audio_bytes_ignores_a_folder_named_like_a_track(store):
     store.create(meeting)
     (store.data_dir / meeting.id / "mic.mp3").mkdir()
     assert store.audio_bytes(meeting) == 0
+
+
+def test_notes_round_trip_replace_and_remove(store):
+    store.create(make_meeting())
+    assert store.load_notes("2026-11-11-1430-standup") is None
+    store.save_notes("2026-11-11-1430-standup", "## สรุป\n- Budget approved\n")
+    store.save_notes("2026-11-11-1430-standup", "## สรุป\n- Budget approved, ship Friday\n")
+    path = store.data_dir / "2026-11-11-1430-standup" / "notes.md"
+    assert path.read_text(encoding="utf-8") == "## สรุป\n- Budget approved, ship Friday\n"
+    assert store.load_notes("2026-11-11-1430-standup") == "## สรุป\n- Budget approved, ship Friday\n"
+    store.save_notes("2026-11-11-1430-standup", "  \n")
+    assert not path.exists() and store.load_notes("2026-11-11-1430-standup") is None
+    store.save_notes("2026-11-11-1430-standup", "")  # nothing to remove: fine
+
+
+def test_notes_of_unknown_meeting(store):
+    with pytest.raises(MeetingNotFound):
+        store.save_notes("nope", "x")
+    with pytest.raises(MeetingNotFound):
+        store.load_notes("../x")
+
+
+def test_vocabulary_is_read_from_the_data_dir(store):
+    assert store.vocabulary() == []
+    (store.data_dir / "vocabulary.txt").write_text("# teammates\nSomchai\n\n  Kubernetes  \n# products\nสมชาย\n", encoding="utf-8")
+    assert store.vocabulary() == ["Somchai", "Kubernetes", "สมชาย"]
+
+
+def test_vocabulary_keeps_only_whole_words_that_fit(store):
+    words = [f"word{n:03d}" for n in range(200)]  # 7 letters + ", " each: 9 apiece
+    (store.data_dir / "vocabulary.txt").write_text("\n".join(words), encoding="utf-8")
+    kept = store.vocabulary()
+    assert kept == words[: len(kept)] and len(", ".join(kept)) <= 800 < len(", ".join(words[: len(kept) + 1]))
+
+
+def test_vocabulary_file_is_created_with_a_how_to_and_never_overwritten(store):
+    path = store.vocabulary_file()
+    assert path == store.data_dir / "vocabulary.txt"
+    assert path.read_text(encoding="utf-8").startswith("# ") and store.vocabulary() == []
+    path.write_text("Somchai\n", encoding="utf-8")
+    assert store.vocabulary_file().read_text(encoding="utf-8") == "Somchai\n"
+    assert store.list() == []  # not mistaken for a meeting

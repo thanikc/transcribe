@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
+from difflib import SequenceMatcher
 from enum import StrEnum
 from typing import Iterable, Literal
 
-Mode = Literal["mic", "mic+system"]
+Mode = Literal["mic", "mic+system", "file"]
 Language = Literal["auto", "th", "en"]
-Track = Literal["mic", "system"]
+Track = Literal["mic", "system", "file"]
 
+# The modes a recording can be started in. "file" is a meeting made from an imported audio file.
 MODES: tuple[str, ...] = ("mic", "mic+system")
+IMPORTED = "file"
 LANGUAGES: tuple[str, ...] = ("auto", "th", "en")
-TRACKS: tuple[str, ...] = ("mic", "system")
+TRACKS: tuple[str, ...] = ("mic", "system", "file")
 # The speech models offered for choosing, with their download size.
 MODELS: dict[str, str] = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
 # What to transcribe with when a model does not fit in memory: about half the size.
@@ -68,6 +72,10 @@ class InvalidChoice(DomainError):
     """A mode, language or speech model outside the allowed values."""
 
 
+class UnreadableAudio(DomainError):
+    """An imported file that can't be decoded as audio."""
+
+
 class Status(StrEnum):
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
@@ -85,11 +93,23 @@ _ALLOWED = {
 
 
 @dataclass(frozen=True)
+class Word:
+    start: float
+    end: float
+    text: str  # as Whisper gives it: English words carry their leading space, Thai ones none
+
+
+@dataclass(frozen=True)
 class Segment:
     start: float
     end: float
     text: str
     speaker: str | None = None
+    # From Whisper, used to split the segment where the speaker changes; never stored.
+    words: tuple[Word, ...] = ()
+
+    def to_dict(self) -> dict:
+        return {"start": self.start, "end": self.end, "text": self.text, "speaker": self.speaker}
 
 
 @dataclass(frozen=True)
@@ -126,6 +146,8 @@ class Meeting:
 
     @property
     def tracks(self) -> list[str]:
+        if self.mode == IMPORTED:
+            return [IMPORTED]
         return ["mic", "system"] if self.mode == "mic+system" else ["mic"]
 
     def to_dict(self) -> dict:
@@ -147,7 +169,7 @@ class Meeting:
         )
 
 
-_TRACK_NAMES = {"mic": "microphone", "system": "system audio"}
+_TRACK_NAMES = {"mic": "microphone", "system": "system audio", "file": "audio file"}
 
 
 @dataclass(frozen=True)
@@ -161,14 +183,15 @@ class TranscriptionStep:
 
 
 def transcription_steps(mode: str) -> list[TranscriptionStep]:
-    """Work done after a recording, in order. In mic+system mode the mic track is always "You"."""
+    """Work done after a recording or import, in order. In mic+system mode the mic track is always "You"."""
     if mode == "mic+system":
         return [
             TranscriptionStep("transcribe", "mic"),
             TranscriptionStep("transcribe", "system"),
             TranscriptionStep("diarize", "system"),
         ]
-    return [TranscriptionStep("transcribe", "mic"), TranscriptionStep("diarize", "mic")]
+    track = IMPORTED if mode == IMPORTED else "mic"
+    return [TranscriptionStep("transcribe", track), TranscriptionStep("diarize", track)]
 
 
 def meeting_id(title: str, started_at: datetime, existing: set[str]) -> str:
@@ -188,15 +211,8 @@ def transition(meeting: Meeting, new: Status, error: str | None = None) -> Meeti
     return replace(meeting, status=new, error=error if new == Status.FAILED else None)
 
 
-def _overlap(segment: Segment, turn: SpeakerTurn) -> float:
+def _overlap(segment: Segment | Word, turn: SpeakerTurn) -> float:
     return min(segment.end, turn.end) - max(segment.start, turn.start)
-
-
-def assign_speakers(segments: list[Segment], turns: list[SpeakerTurn]) -> list[str | None]:
-    """Raw speaker label per segment: the turn overlapping it most (or the nearest one)."""
-    if not turns:
-        return [None] * len(segments)
-    return [max(turns, key=lambda t: _overlap(s, t)).speaker for s in segments]
 
 
 def label_track(
@@ -204,17 +220,66 @@ def label_track(
 ) -> list[Segment]:
     """Attach display speakers. `turns` is None when diarization did not run or failed."""
     if mode == "mic+system" and track == "mic":
-        return [replace(s, speaker="You") for s in segments]
+        return [replace(s, speaker="You", words=()) for s in segments]
     if turns is None:
         fallback = "Others" if track == "system" else None
-        return [replace(s, speaker=fallback) for s in segments]
+        return [replace(s, speaker=fallback, words=()) for s in segments]
     ordered = sorted(segments, key=lambda s: s.start)
     numbers: dict[str | None, str] = {}
     labelled = []
-    for segment, raw in zip(ordered, assign_speakers(ordered, turns)):
-        numbers.setdefault(raw, f"Speaker {len(numbers) + 1}")
-        labelled.append(replace(segment, speaker=numbers[raw]))
+    for segment in ordered:
+        for piece, raw in split_at_turns(segment, turns):
+            numbers.setdefault(raw, f"Speaker {len(numbers) + 1}")
+            labelled.append(replace(piece, speaker=numbers[raw]))
     return labelled
+
+
+# A shorter stretch of words than this is not split off as its own line: diarization flickers.
+MIN_PIECE = 1.0
+
+
+def _span(words: list[Word]) -> float:
+    return words[-1].end - words[0].start
+
+
+def _coalesce(runs: list[tuple[list[Word], str]]) -> list[tuple[list[Word], str]]:
+    joined: list[tuple[list[Word], str]] = []
+    for words, raw in runs:
+        if joined and joined[-1][1] == raw:
+            joined[-1] = (joined[-1][0] + words, raw)
+        else:
+            joined.append((words, raw))
+    return joined
+
+
+def split_at_turns(segment: Segment, turns: list[SpeakerTurn]) -> list[tuple[Segment, str | None]]:
+    """The segment cut where the speaker changes between its words, each piece with its raw speaker.
+
+    A segment without word times, or whose speaker changes only for blips under MIN_PIECE, stays whole
+    and goes to the speaker of most of it.
+    """
+    whole = replace(segment, words=())
+    if not turns:
+        return [(whole, None)]
+    nearest = lambda span: max(turns, key=lambda t: _overlap(span, t)).speaker  # noqa: E731
+    runs = _coalesce([([w], nearest(w)) for w in segment.words])
+    while len(runs) > 1:
+        i = min(range(len(runs)), key=lambda k: _span(runs[k][0]))
+        if _span(runs[i][0]) >= MIN_PIECE:
+            break
+        # Fold the shortest stretch into its longer neighbour, which keeps its speaker.
+        j = i - 1 if i == len(runs) - 1 or (i > 0 and _span(runs[i - 1][0]) >= _span(runs[i + 1][0])) else i + 1
+        lo, hi = sorted((i, j))
+        runs[lo : hi + 1] = [(runs[lo][0] + runs[hi][0], runs[j][1])]
+        runs = _coalesce(runs)
+    if len(runs) < 2:
+        return [(whole, nearest(segment))]
+    pieces = []
+    for n, (words, raw) in enumerate(runs):
+        start = segment.start if n == 0 else words[0].start
+        end = segment.end if n == len(runs) - 1 else words[-1].end
+        pieces.append((Segment(start, end, "".join(w.text for w in words).strip()), raw))
+    return pieces
 
 
 def rename_speaker(
@@ -226,6 +291,42 @@ def rename_speaker(
     if name.strip():
         updated[speaker] = name.strip()
     return updated
+
+
+# How far apart the two tracks' timings of one utterance can be, and how much of a mic line has to
+# appear in the system audio for it to count as the mic hearing the speakers.
+ECHO_WINDOW = 1.0
+ECHO_SHARE = 0.6
+# Shared letters count only in runs this long: stray single letters are found in any sentence.
+ECHO_RUN = 3
+
+
+def _letters(text: str) -> str:
+    """Letters, marks (Thai vowels and tones) and digits only, case-folded: what two transcriptions of one
+    utterance share regardless of punctuation and spacing."""
+    return "".join(c for c in text.casefold() if unicodedata.category(c)[0] in "LMN")
+
+
+def drop_echoes(mic: list[Segment], system: list[Segment]) -> tuple[list[Segment], int]:
+    """Mic segments without the ones that repeat concurrent system audio, and how many were dropped.
+
+    Without headphones the mic hears the speakers, so remote speech is transcribed from both tracks.
+    """
+    kept = []
+    for segment in mic:
+        heard = _letters(segment.text)
+        nearby = "".join(
+            _letters(s.text)
+            for s in system
+            if s.end >= segment.start - ECHO_WINDOW and s.start <= segment.end + ECHO_WINDOW
+        )
+        if heard and nearby:
+            blocks = SequenceMatcher(None, heard, nearby, autojunk=False).get_matching_blocks()
+            shared = sum(b.size for b in blocks if b.size >= ECHO_RUN)
+            if shared >= ECHO_SHARE * len(heard):
+                continue
+        kept.append(segment)
+    return kept, len(mic) - len(kept)
 
 
 def merge_transcript(tracks: dict[str, list[Segment]]) -> list[Segment]:

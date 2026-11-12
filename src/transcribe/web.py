@@ -8,8 +8,9 @@ for the status polls.
 from __future__ import annotations
 
 import json
+import os
 import re
-from dataclasses import asdict
+import tempfile
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -32,6 +33,7 @@ from transcribe.domain import (
     Status,
     TranscriptNotReady,
     UnknownTrack,
+    UnreadableAudio,
     render_transcript,
     timestamp,
 )
@@ -41,6 +43,9 @@ from transcribe.updates import UpdateError, UpdateService
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 SCRIPT_NAME = re.compile(r"[a-z]+\.js")
+IMPORT_PATH = "/api/meetings/import"
+# Raw audio, not form data: a browser sends it cross-site only after a preflight, which this service never answers.
+AUDIO_UPLOAD = "application/octet-stream"
 
 
 class BadRequest(DomainError):
@@ -101,12 +106,14 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
     def detail(meeting_id: str) -> dict:
         meeting = recorder.store.get(meeting_id)
+        notes = recorder.store.load_notes(meeting_id)
         if meeting.status != Status.TRANSCRIBED:
-            return {"meeting": _meeting_json(meeting), "segments": None, "transcript": None}
+            return {"meeting": _meeting_json(meeting), "notes": notes, "segments": None, "transcript": None}
         segments = recorder.store.load_transcript(meeting_id)
         return {
             "meeting": _meeting_json(meeting),
-            "segments": [asdict(s) for s in segments],
+            "notes": notes,
+            "segments": [s.to_dict() for s in segments],
             "transcript": render_transcript(segments, meeting.speaker_names),
         }
 
@@ -133,6 +140,26 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
             return {"meeting": _meeting_json(meeting)}
 
         return JSONResponse(await run_in_threadpool(work), status_code=201)
+
+    async def import_audio(request: Request) -> Response:
+        params = request.query_params
+        # Streamed to disk: a phone recording of a long meeting can be hundreds of MB.
+        fd, name = tempfile.mkstemp(suffix=".upload")
+        upload = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as file:
+                async for chunk in request.stream():
+                    await run_in_threadpool(file.write, chunk)
+
+            def work() -> dict:
+                meeting = recorder.import_audio(
+                    upload, params.get("title", ""), params.get("language") or "auto", params.get("model") or None
+                )
+                return {"meeting": _meeting_json(meeting)}
+
+            return JSONResponse(await run_in_threadpool(work), status_code=201)
+        finally:
+            upload.unlink(missing_ok=True)
 
     def stop(request: Request) -> Response:
         return JSONResponse({"meeting": _meeting_json(recorder.stop())})
@@ -177,6 +204,26 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
         return JSONResponse(await run_in_threadpool(work))
 
+    async def title(request: Request) -> Response:
+        data = await _body(request, required=("title",))
+        meeting_id = request.path_params["id"]
+
+        def work() -> dict:
+            recorder.rename(meeting_id, data["title"])
+            return detail(meeting_id)
+
+        return JSONResponse(await run_in_threadpool(work))
+
+    async def notes(request: Request) -> Response:
+        data = await _body(request, required=("notes",))
+        meeting_id = request.path_params["id"]
+
+        def work() -> dict:
+            recorder.save_notes(meeting_id, data["notes"])
+            return detail(meeting_id)
+
+        return JSONResponse(await run_in_threadpool(work))
+
     def search(request: Request) -> Response:
         query = request.query_params.get("q", "").strip()
         if not query:
@@ -210,8 +257,9 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
     async def same_origin_json(request: Request, call_next):
         """Keep other websites from driving the API through the browser."""
         if request.method not in ("GET", "HEAD", "OPTIONS"):
-            if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
-                return _error("Content-Type must be application/json", 415)
+            expected = AUDIO_UPLOAD if request.url.path == IMPORT_PATH else "application/json"
+            if request.headers.get("content-type", "").split(";")[0].strip().lower() != expected:
+                return _error(f"Content-Type must be {expected}", 415)
             origin = request.headers.get("origin")
             if origin is not None and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
                 return _error("cross-origin requests are not allowed", 403)
@@ -224,11 +272,14 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         Route("/api/recordings/start", start, methods=["POST"]),
         Route("/api/recordings/stop", stop, methods=["POST"]),
         Route("/api/meetings", meetings),
+        Route(IMPORT_PATH, import_audio, methods=["POST"]),
         Route("/api/meetings/{id}", meeting),
         Route("/api/meetings/{id}", delete, methods=["DELETE"]),
         Route("/api/meetings/{id}/audio/{track}", audio),
         Route("/api/meetings/{id}/transcribe", transcribe, methods=["POST"]),
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),
+        Route("/api/meetings/{id}/title", title, methods=["POST"]),
+        Route("/api/meetings/{id}/notes", notes, methods=["POST"]),
         Route("/api/models", models),
         Route("/api/search", search),
         Route("/api/version", version),

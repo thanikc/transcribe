@@ -11,6 +11,7 @@ from typing import Callable
 
 import pytest
 
+from fakes import FakeConverter
 from transcribe.domain import (
     InvalidChoice,
     InvalidTransition,
@@ -24,6 +25,7 @@ from transcribe.domain import (
     Status,
     TranscriptNotReady,
     UnknownSpeaker,
+    UnreadableAudio,
     render_transcript,
 )
 from transcribe.recorder import CaptureError, OneAtATime, OutOfMemory, Recorder
@@ -44,6 +46,10 @@ class FakeSession:
     def __init__(self, fail: Exception | None = None) -> None:
         self.stopped = False
         self.fail = fail
+        self.peaks: dict[str, float] = {}
+
+    def levels(self) -> dict[str, float]:
+        return self.peaks
 
     def stop(self) -> None:
         self.stopped = True
@@ -63,7 +69,8 @@ class FakeCapture:
         self.paths = track_paths
         for path in track_paths.values():
             path.touch()
-        return FakeSession(self.stop_error)
+        self.session = FakeSession(self.stop_error)
+        return self.session
 
 
 class FakeSTT:
@@ -76,13 +83,15 @@ class FakeSTT:
         self.models: list[tuple[str, str]] = []
         self.too_big: set[str] = set()
         self.downloaded = {"large-v3"}
+        self.vocabularies: list[list[str]] = []
 
     def has_model(self, model: str) -> bool:
         return model in self.downloaded
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
+        self.vocabularies.append(vocabulary)
         self.models.append((wav.stem, model))
         if model in self.too_big:
             raise OutOfMemory(model)
@@ -123,6 +132,7 @@ class Rig:
             self.diarizer,
             clock=self.clock,
             run_in_background=self.jobs.append,
+            converter=FakeConverter(),
         )
 
     def run_jobs(self) -> None:
@@ -353,7 +363,14 @@ def test_status_reports_elapsed(rig: Rig) -> None:
         "mode": "mic",
         "language": "th",
         "elapsed": 12.5,
+        "levels": {},
     }
+
+
+def test_status_reports_each_tracks_sound_level(rig: Rig) -> None:
+    rig.recorder.start("Call", "mic+system")
+    rig.capture.session.peaks = {"mic": 0.25, "system": 0.0}
+    assert rig.recorder.status()["levels"] == {"mic": 0.25, "system": 0.0}
 
 
 def _two_speaker_meeting(rig: Rig) -> Meeting:
@@ -644,3 +661,108 @@ def test_two_meetings_are_transcribed_one_after_the_other_by_default(tmp_path: P
     assert [recorder.store.get(i).status for i in ids] == [Status.TRANSCRIBED, Status.TRANSCRIBED]
     assert whisper.calls == [("mic", None), ("mic", None)]
     assert overlapped == [False, False]
+
+
+def test_rename_meeting_keeps_its_id(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record("Weekly sync"))
+    renamed = rig.recorder.rename(meeting.id, "  Budget review ")
+    assert (renamed.id, renamed.title) == (meeting.id, "Budget review")
+    assert rig.store.get(meeting.id).title == "Budget review"
+    assert rig.recorder.rename(meeting.id, "   ").title == ""
+
+
+def test_rename_while_recording_is_kept_after_stop(rig: Rig) -> None:
+    meeting = rig.recorder.start("Untitled call", "mic")
+    rig.recorder.rename(meeting.id, "Customer call")
+    assert rig.recorder.status()["title"] == "Customer call"
+    assert rig.recorder.stop().title == "Customer call"
+
+
+def test_rename_while_transcribing_is_kept_when_done(rig: Rig) -> None:
+    meeting = rig.record("Untitled call")
+    rig.recorder.rename(meeting.id, "Customer call")
+    assert rig.transcribed(meeting).title == "Customer call"
+
+
+def test_rename_unknown_meeting(rig: Rig) -> None:
+    with pytest.raises(MeetingNotFound):
+        rig.recorder.rename("nope", "x")
+
+
+def test_notes_survive_transcribing_again(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record())
+    rig.recorder.save_notes(meeting.id, "Action: send the budget")
+    rig.transcribed(rig.recorder.transcribe(meeting.id))
+    assert rig.store.load_notes(meeting.id) == "Action: send the budget"
+    with pytest.raises(MeetingNotFound):
+        rig.recorder.save_notes("nope", "x")
+
+
+def test_online_call_leaves_out_mic_echoes_of_the_system_audio(rig: Rig) -> None:
+    rig.whisper.by_track = {
+        "mic": [Segment(2.1, 3.0, "hello let's start"), Segment(5.0, 6.0, "Sounds good")],
+        "system": [Segment(2.0, 3.0, "Hello, let's start")],
+    }
+    rig.diarizer.turns = {"system": [SpeakerTurn(1.5, 4.0, "A")]}
+    meeting = rig.transcribed(rig.record("Call", "mic+system"))
+    assert render_transcript(rig.store.load_transcript(meeting.id), {}) == (
+        "[00:02] Speaker 1: Hello, let's start\n[00:05] You: Sounds good"
+    )
+    assert meeting.warnings == ["left out 1 microphone line that repeated the system audio"]
+
+
+def test_in_person_meetings_drop_nothing(rig: Rig) -> None:
+    rig.whisper.by_track = {"mic": [Segment(0, 1, "same"), Segment(0, 1, "same")]}
+    meeting = rig.transcribed(rig.record())
+    assert len(rig.store.load_transcript(meeting.id)) == 2 and meeting.warnings == []
+
+
+def test_vocabulary_is_given_to_whisper(rig: Rig) -> None:
+    rig.transcribed(rig.record())
+    (rig.store.data_dir / "vocabulary.txt").write_text("Somchai\nKubernetes\n", encoding="utf-8")
+    rig.transcribed(rig.record("Second"))
+    assert rig.whisper.vocabularies == [[], ["Somchai", "Kubernetes"]]
+
+
+
+def _audio_file(tmp_path: Path, content: bytes = b"ID3 phone recording") -> Path:
+    path = tmp_path / "standup.m4a"
+    path.write_bytes(content)
+    return path
+
+
+def test_imported_file_is_transcribed_and_diarized_like_an_in_person_meeting(rig: Rig, tmp_path: Path) -> None:
+    rig.whisper.by_track = {"file": [Segment(0, 1, "Morning"), Segment(3, 4, "Hi")]}
+    rig.diarizer.turns = {"file": [SpeakerTurn(0, 2, "A"), SpeakerTurn(2.5, 4, "B")]}
+    meeting = rig.recorder.import_audio(_audio_file(tmp_path), "Standup", "th")
+    assert (meeting.id, meeting.mode, meeting.tracks) == ("2026-11-11-1430-standup", "file", ["file"])
+    assert (meeting.status, meeting.duration, meeting.language) == (Status.TRANSCRIBING, 42.0, "th")
+    assert rig.store.track_path(meeting.id, "file").read_bytes() == b"mp3"
+    done = rig.transcribed(meeting)
+    assert done.status == Status.TRANSCRIBED and rig.diarizer.calls == ["file"]
+    assert render_transcript(rig.store.load_transcript(meeting.id), {}) == "[00:00] Speaker 1: Morning\n[00:03] Speaker 2: Hi"
+
+
+def test_a_file_that_is_not_audio_leaves_no_meeting(rig: Rig, tmp_path: Path) -> None:
+    with pytest.raises(UnreadableAudio, match="could not read the file as audio"):
+        rig.recorder.import_audio(_audio_file(tmp_path, b"not audio"), "Notes", "auto")
+    assert rig.store.list() == [] and rig.jobs == []
+
+
+def test_import_validates_its_choices(rig: Rig, tmp_path: Path) -> None:
+    with pytest.raises(InvalidChoice):
+        rig.recorder.import_audio(_audio_file(tmp_path), "x", "fr")
+    with pytest.raises(InvalidChoice):
+        rig.recorder.import_audio(_audio_file(tmp_path), "x", "auto", model="tiny")
+    assert rig.store.list() == []
+
+
+def test_import_while_recording_is_its_own_meeting(rig: Rig, tmp_path: Path) -> None:
+    live = rig.recorder.start("Live", "mic")
+    imported = rig.recorder.import_audio(_audio_file(tmp_path), "Standup", "auto")
+    assert imported.id != live.id and rig.recorder.status()["meeting_id"] == live.id
+
+
+def test_an_imported_file_cannot_be_started_as_a_recording(rig: Rig) -> None:
+    with pytest.raises(InvalidChoice):
+        rig.recorder.start("x", "file")

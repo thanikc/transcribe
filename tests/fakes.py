@@ -13,12 +13,25 @@ class FakeSession:
     def stop(self) -> None:
         pass
 
+    def levels(self) -> dict[str, float]:
+        return {}
+
 
 class FakeCapture:
     def start(self, track_paths: dict[str, Path]) -> FakeSession:
         for path in track_paths.values():
             path.touch()
         return FakeSession()
+
+
+class FakeConverter:
+    """Reads any file as 42 seconds of audio, except one starting with "not audio"."""
+
+    def convert(self, source: Path, dest: Path) -> float:
+        if source.read_bytes().startswith(b"not audio"):
+            raise ValueError("Invalid data found when processing input")
+        dest.write_bytes(b"mp3")
+        return 42.0
 
 
 class FakeSpeechToText:
@@ -35,7 +48,7 @@ class FakeSpeechToText:
         return model in self.downloaded
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         self.used.append(model)
         if model in self.too_big:

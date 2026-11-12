@@ -96,7 +96,8 @@ export function renderMeeting() {
   const head = document.createDocumentFragment(), tail = document.createDocumentFragment();
   let view = head;
   const id = m.id;
-  view.append(el("h3", { style: "margin:0;font-size:1.25rem;overflow-wrap:anywhere" }, document.createTextNode(m.title || m.id), badge(m.status)));
+  const titleBtn = el("button", { type: "button", class: "title-edit", title: "Rename this meeting", text: m.title || m.id, onclick: () => renameMeeting(m.title) });
+  view.append(el("h3", { style: "margin:0;font-size:1.25rem;overflow-wrap:anywhere" }, titleBtn, badge(m.status)));
 
   let lang = LANG_LABEL[m.language] || m.language;
   if (m.language === "auto") {
@@ -121,6 +122,10 @@ export function renderMeeting() {
   }
   view = tail;
 
+  if (state.detail.notes) {
+    view.append(el("section", { class: "notes", "aria-label": "Notes" }, el("h4", { text: "Notes" }), el("div", { text: state.detail.notes })));
+  }
+
   if (m.status === "recording") {
     view.append(el("p", { class: "muted", text: "Recording in progress. The transcript appears after you stop." }));
   } else if (m.status === "transcribing") {
@@ -133,7 +138,9 @@ export function renderMeeting() {
     if (segments.length) view.append(utilBar("top", text, collapsible, collapsed));
     const ol = el("ol", { class: "transcript", "aria-label": "Transcript" });
     for (const s of collapsed ? segments.slice(0, COLLAPSED_LINES) : segments) {
-      const li = el("li", null, el("span", { class: "ts", text: `[${mmss(s.start)}]` }));
+      const track = trackOf(m, s);
+      const li = el("li", { "data-track": track, "data-start": s.start, "data-end": s.end },
+        el("button", { type: "button", class: "ts", title: "Play from here", text: `[${mmss(s.start)}]`, onclick: () => playFrom(track, s.start) }));
       if (s.speaker) {
         const shown = (m.speaker_names || {})[s.speaker] || s.speaker;
         const b = el("button", { type: "button", class: "spk", title: "Rename this speaker", text: shown, onclick: () => renameSpeaker(s.speaker, shown) });
@@ -196,6 +203,44 @@ export function renderMeeting() {
   }
 }
 
+// Which recording a line was heard on: in an online call "You" is the microphone and everyone else the system audio.
+function trackOf(m, s) {
+  if (m.mode === "mic+system") return s.speaker === "You" ? "mic" : "system";
+  return (m.tracks || ["mic"])[0];
+}
+
+function playFrom(track, start) {
+  const player = $(`audio-${track}`);
+  if (!player) return;
+  for (const other of document.querySelectorAll("#tracks audio")) if (other !== player) other.pause();
+  // The players load nothing until asked (preload="none"); seek once the file's length is known.
+  if (player.readyState === 0) player.addEventListener("loadedmetadata", () => { player.currentTime = start; }, { once: true });
+  else player.currentTime = start;
+  player.play().catch(() => { /* the browser refused to play; the player shows why */ });
+}
+
+// Mark the line whose time span holds the play position of the player that moved.
+function highlightPlaying(e) {
+  const player = e.target;
+  if (!(player instanceof HTMLMediaElement) || !player.closest("#tracks")) return;
+  const track = player.id.replace(/^audio-/, ""), t = player.currentTime;
+  for (const li of document.querySelectorAll("ol.transcript li")) {
+    const on = li.dataset.track === track && t >= +li.dataset.start && t < +li.dataset.end;
+    li.classList.toggle("playing", on);
+  }
+}
+
+async function renameMeeting(current) {
+  const title = prompt("Meeting title (leave empty for none):", current);
+  if (title === null) return;
+  const id = state.currentId;
+  try {
+    const d = await api("POST", `/api/meetings/${encodeURIComponent(id)}/title`, { title });
+    if (id === state.currentId) { state.detail = d; renderMeeting(); }
+    loadMeetings();
+  } catch (e) { alert(e.message); }
+}
+
 async function renameSpeaker(raw, current) {
   const name = prompt(`Name for ${raw} (leave empty to reset):`, current === raw ? "" : current);
   if (name === null) return;
@@ -208,4 +253,5 @@ async function renameSpeaker(raw, current) {
 
 export function initMeeting() {
   window.addEventListener("hashchange", routeFromHash);
+  document.addEventListener("timeupdate", highlightPlaying, true);  // media events don't bubble; capture them
 }

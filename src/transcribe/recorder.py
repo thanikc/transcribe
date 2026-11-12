@@ -12,6 +12,7 @@ from typing import Callable, Protocol
 
 from transcribe.domain import (
     FALLBACK_MODELS,
+    IMPORTED,
     LANGUAGES,
     MODELS,
     MODES,
@@ -26,6 +27,8 @@ from transcribe.domain import (
     Segment,
     SpeakerTurn,
     Status,
+    UnreadableAudio,
+    drop_echoes,
     label_track,
     meeting_id,
     merge_transcript,
@@ -57,6 +60,9 @@ class CaptureSession(Protocol):
     def stop(self) -> None:
         """Stop all tracks and close their audio files."""
 
+    def levels(self) -> dict[str, float]:
+        """Per track, the loudest sample (0 to 1) of the audio captured last; 0 before any."""
+
 
 class AudioCapture(Protocol):
     def start(self, track_paths: dict[str, Path]) -> CaptureSession:
@@ -69,9 +75,11 @@ ProgressCallback = Callable[[float], None]
 
 class SpeechToText(Protocol):
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: ProgressCallback, model: str
+        self, wav: Path, language: str | None, on_progress: ProgressCallback, model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         """Track audio + language (None = detect) -> (segments without speakers, detected language).
+
+        `vocabulary`: names and words the speech is likely to contain.
 
         Raises OutOfMemory if `model` does not fit in memory.
         """
@@ -83,6 +91,11 @@ class SpeechToText(Protocol):
 class SpeakerDiarizer(Protocol):
     def diarize(self, wav: Path, on_progress: ProgressCallback) -> list[SpeakerTurn]:
         """Track audio -> speaker turns with raw labels."""
+
+
+class AudioConverter(Protocol):
+    def convert(self, source: Path, dest: Path) -> float:
+        """Write any audio file as a track's audio file; returns its length in seconds. Raises if unreadable."""
 
 
 class OneAtATime:
@@ -123,6 +136,7 @@ class Recorder:
         clock: Callable[[], datetime] = datetime.now,
         run_in_background: Callable[[Callable[[], None]], None] | None = None,
         default_model: str = "large-v3",
+        converter: AudioConverter | None = None,
     ) -> None:
         self.store = store
         self.capture = capture
@@ -131,6 +145,7 @@ class Recorder:
         self.clock = clock
         self.run_in_background = run_in_background or OneAtATime()
         self.default_model = default_model
+        self.converter = converter
         self._lock = threading.Lock()
         self._active: tuple[Meeting, CaptureSession] | None = None
         # In memory only: a restart marks running jobs failed, so there is nothing to resume.
@@ -168,7 +183,7 @@ class Recorder:
         active = self._active
         if active is None:
             return {"recording": False}
-        meeting = active[0]
+        meeting, session = active
         return {
             "recording": True,
             "meeting_id": meeting.id,
@@ -176,6 +191,7 @@ class Recorder:
             "mode": meeting.mode,
             "language": meeting.language,
             "elapsed": (self.clock() - meeting.started_at).total_seconds(),
+            "levels": session.levels(),
         }
 
     def progress(self, meeting_id: str) -> dict | None:
@@ -235,6 +251,32 @@ class Recorder:
             self._active = (meeting, session)
             return meeting
 
+    def import_audio(self, source: Path, title: str, language: str = "auto", model: str | None = None) -> Meeting:
+        """Make a meeting of an existing audio file and queue its transcription."""
+        self._check_language(language)
+        model = model or self.default_model
+        self._check_model(model)
+        if self.converter is None:
+            raise DomainError("importing audio files is not available in this service")
+        with self._lock:
+            now = self.clock()
+            title = title.strip()
+            meeting = Meeting(
+                meeting_id(title, now, self.store.ids()), title, IMPORTED, language, now, Status.TRANSCRIBING, model=model
+            )
+            self.store.create(meeting)
+        # Outside the lock: an hour of audio takes a while to convert, and recording must not wait on it.
+        try:
+            duration = self.converter.convert(source, self.store.track_path(meeting.id, IMPORTED))
+        except Exception as e:
+            self.store.delete(meeting.id)
+            raise UnreadableAudio(f"could not read the file as audio: {e}") from e
+        with self._lock:  # keeps a rename made meanwhile
+            meeting = replace(self.store.get(meeting.id), duration=duration)
+            self.store.save(meeting)
+        self.run_in_background(lambda: self._transcribe_job(meeting.id))
+        return meeting
+
     def stop(self) -> Meeting:
         with self._lock:
             if self._active is None:
@@ -287,6 +329,21 @@ class Recorder:
             self.store.save(meeting)
             return meeting
 
+    def rename(self, meeting_id: str, title: str) -> Meeting:
+        """Give a meeting a new title; its id stays. Kept if it is recording or being transcribed."""
+        with self._lock:
+            meeting = replace(self.store.get(meeting_id), title=title.strip())
+            if self._active is not None and self._active[0].id == meeting_id:
+                # stop() saves the in-memory meeting, which would otherwise bring the old title back.
+                meeting = replace(self._active[0], title=meeting.title)
+                self._active = (meeting, self._active[1])
+            self.store.save(meeting)
+            return meeting
+
+    def save_notes(self, meeting_id: str, notes: str) -> None:
+        with self._lock:  # not while the meeting is being deleted
+            self.store.save_notes(meeting_id, notes)
+
     def delete(self, meeting_id: str) -> None:
         # Locked so a recording or transcription can't start on it mid-delete.
         with self._lock:
@@ -337,6 +394,7 @@ class Recorder:
     def _run_transcription(self, meeting: Meeting) -> None:
         language = None if meeting.language == "auto" else meeting.language
         model = meeting.model or self.default_model  # meetings from before the choice existed have none
+        vocabulary = self.store.vocabulary()
         detected: dict[str, str] = {}
         warnings: list[str] = []
         segments: dict[str, list[Segment]] = {}
@@ -348,7 +406,7 @@ class Recorder:
             wav = self.store.track_path(meeting.id, step.track)
             if step.kind == "transcribe":
                 try:
-                    result = self.stt.transcribe(wav, language, report, model)
+                    result = self.stt.transcribe(wav, language, report, model, vocabulary)
                 except OutOfMemory:
                     fallback = FALLBACK_MODELS.get(model)
                     if fallback is None:
@@ -358,7 +416,7 @@ class Recorder:
                     too_big, model = model, fallback
                     self._begin_step(meeting.id, step.label, number, len(steps))
                     try:
-                        result = self.stt.transcribe(wav, language, report, model)
+                        result = self.stt.transcribe(wav, language, report, model, vocabulary)
                     except OutOfMemory:
                         raise
                     except Exception as e:  # e.g. the smaller model could not be downloaded
@@ -372,9 +430,16 @@ class Recorder:
                 turns[step.track] = self.diarizer.diarize(wav, report)
             except Exception as e:
                 warnings.append(f"speaker detection failed: {e}")
+        if "mic" in segments and "system" in segments:
+            segments["mic"], echoes = drop_echoes(segments["mic"], segments["system"])
+            if echoes:
+                lines = "line" if echoes == 1 else "lines"
+                warnings.append(f"left out {echoes} microphone {lines} that repeated the system audio")
         labelled = {
             track: label_track(segs, track, meeting.mode, turns.get(track)) for track, segs in segments.items()
         }
         self.store.save_transcript(meeting.id, merge_transcript(labelled))
         done = transition(meeting, Status.TRANSCRIBED)
-        self.store.save(replace(done, detected_languages=detected, warnings=warnings, model=model))
+        with self._lock:  # a rename made while this ran must not be undone
+            title = self.store.get(meeting.id).title
+            self.store.save(replace(done, title=title, detected_languages=detected, warnings=warnings, model=model))

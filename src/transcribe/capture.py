@@ -1,4 +1,4 @@
-"""Audio capture adapter: soundcard mic and loopback streamed to mono MP3 files."""
+"""Audio capture adapter: soundcard mic and loopback streamed to mono MP3 files; imported files converted to one."""
 
 from __future__ import annotations
 
@@ -57,9 +57,46 @@ class Mp3Writer:
         self.close()
 
 
+class AudioFileConverter:
+    """Any audio file FFmpeg reads (m4a, mp3, wav, ogg, the sound of a video…) as a track's 16 kHz mono MP3."""
+
+    def convert(self, source: Path, dest: Path) -> float:
+        import av
+
+        # Planar, channels kept: averaged here, since FFmpeg's downmix adds them at -3 dB and can clip.
+        resampler = av.AudioResampler(format="fltp", rate=SAMPLE_RATE)
+        samples = 0
+        try:
+            container = av.open(str(source))
+        except av.error.FFmpegError as e:
+            raise ValueError(e.strerror) from e  # its str() names the upload's temp file
+        with container, Mp3Writer(dest) as mp3:
+            if not container.streams.audio:
+                raise ValueError("it has no sound")
+
+            def write(frames) -> None:
+                nonlocal samples
+                for frame in frames:
+                    mono = frame.to_ndarray().mean(axis=0, dtype="float32")
+                    mp3.write(mono)
+                    samples += len(mono)
+
+            for frame in container.decode(audio=0):
+                write(resampler.resample(frame))
+            write(resampler.resample(None))
+        if not samples:
+            raise ValueError("it has no sound")
+        return samples / SAMPLE_RATE
+
+
 class _Session:
-    def __init__(self, threads: list[threading.Thread], stop: threading.Event, errors: list[Exception]):
-        self._threads, self._stop, self._errors = threads, stop, errors
+    def __init__(
+        self, threads: list[threading.Thread], stop: threading.Event, errors: list[Exception], peaks: dict[str, float]
+    ):
+        self._threads, self._stop, self._errors, self._peaks = threads, stop, errors, peaks
+
+    def levels(self) -> dict[str, float]:
+        return dict(self._peaks)
 
     def stop(self) -> None:
         self._stop.set()
@@ -78,14 +115,23 @@ def _open_device(track: str):
     return soundcard.get_microphone(id=str(speaker.name), include_loopback=True)
 
 
-def _record(track: str, path: Path, ready: threading.Event, stop: threading.Event, errors: list[Exception]) -> None:
+def _record(
+    track: str,
+    path: Path,
+    ready: threading.Event,
+    stop: threading.Event,
+    errors: list[Exception],
+    peaks: dict[str, float],
+) -> None:
     try:
         # Opened in the recording thread so WASAPI handles stay on the thread that uses them.
         with _open_device(track).recorder(samplerate=SAMPLE_RATE) as rec, Mp3Writer(path) as mp3:
             ready.set()
             while not stop.is_set():
                 block = rec.record(numframes=BLOCK_FRAMES)
-                mp3.write(block.mean(axis=1) if block.ndim > 1 else block)
+                mono = block.mean(axis=1) if block.ndim > 1 else block
+                mp3.write(mono)
+                peaks[track] = min(float(abs(mono).max(initial=0.0)), 1.0)
     except Exception as e:  # reported by start() if the device never opened, else by stop()
         errors.append(CaptureError(f"could not open the {track} device: {e}") if not ready.is_set() else e)
         ready.set()
@@ -94,9 +140,10 @@ def _record(track: str, path: Path, ready: threading.Event, stop: threading.Even
 class SoundcardCapture:
     def start(self, track_paths: dict[str, Path]) -> _Session:
         stop, errors = threading.Event(), []
+        peaks = {t: 0.0 for t in track_paths}
         readies = {t: threading.Event() for t in track_paths}
         threads = [
-            threading.Thread(target=_record, args=(t, p, readies[t], stop, errors), daemon=True)
+            threading.Thread(target=_record, args=(t, p, readies[t], stop, errors, peaks), daemon=True)
             for t, p in track_paths.items()
         ]
         for t in threads:
@@ -108,4 +155,4 @@ class SoundcardCapture:
             for t in threads:
                 t.join(timeout=5)
             raise errors[0] if errors else CaptureError("audio device did not open within 10 seconds")
-        return _Session(threads, stop, errors)
+        return _Session(threads, stop, errors, peaks)

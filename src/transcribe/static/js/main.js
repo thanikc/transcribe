@@ -8,9 +8,10 @@ import { initMeeting, inProgress, renderMeeting, routeFromHash, showMeeting } fr
 import { initProgress } from "./progress.js";
 import { initAudio } from "./audio.js";
 import { initSearch } from "./search.js";
+import { initUpload } from "./upload.js";
 import { loadVersion } from "./version.js";
 
-initModels(); initRecording(); initList(); initMeeting(); initProgress(); initAudio(); initSearch();
+initModels(); initRecording(); initList(); initMeeting(); initProgress(); initAudio(); initSearch(); initUpload();
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;

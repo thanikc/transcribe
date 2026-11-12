@@ -9,13 +9,15 @@ from transcribe.domain import (
     SpeakerTurn,
     Status,
     UnknownSpeaker,
-    assign_speakers,
+    Word,
+    drop_echoes,
     label_track,
     meeting_id,
     merge_transcript,
     render_transcript,
     rename_speaker,
     search_transcripts,
+    split_at_turns,
     transcription_steps,
     transition,
 )
@@ -123,15 +125,13 @@ def test_failing_records_the_error_and_retrying_clears_it():
 
 
 def test_segment_spanning_a_speaker_change_goes_to_majority_speaker():
-    segments = [Segment(10.0, 14.0, "x")]
     turns = [SpeakerTurn(9.0, 11.0, "A"), SpeakerTurn(11.0, 15.0, "B")]
-    assert assign_speakers(segments, turns) == ["B"]
+    assert split_at_turns(Segment(10.0, 14.0, "x"), turns) == [(Segment(10.0, 14.0, "x"), "B")]
 
 
 def test_segment_with_no_overlapping_turn_goes_to_nearest_turn():
-    segments = [Segment(5.0, 6.0, "x")]
     turns = [SpeakerTurn(0.0, 1.0, "A"), SpeakerTurn(6.5, 9.0, "B")]
-    assert assign_speakers(segments, turns) == ["B"]
+    assert split_at_turns(Segment(5.0, 6.0, "x"), turns) == [(Segment(5.0, 6.0, "x"), "B")]
 
 
 def test_online_call_mic_is_you_and_system_is_numbered_by_first_appearance():
@@ -218,7 +218,103 @@ def test_search_finds_thai_substrings():
     [
         ("mic", ["Transcribing microphone", "Detecting speakers"]),
         ("mic+system", ["Transcribing microphone", "Transcribing system audio", "Detecting speakers"]),
+        ("file", ["Transcribing audio file", "Detecting speakers"]),
     ],
 )
 def test_transcription_steps_of_each_mode(mode: str, labels: list[str]) -> None:
     assert [step.label for step in transcription_steps(mode)] == labels
+
+
+def test_mic_line_repeating_system_audio_at_the_same_time_is_an_echo() -> None:
+    system = [Segment(3.0, 6.0, "Let's start with the budget.")]
+    assert drop_echoes([Segment(3.2, 6.1, "let's start with the budget")], system) == ([], 1)
+
+
+def test_echo_is_found_across_differently_split_lines() -> None:
+    system = [Segment(3.0, 4.0, "Let's start"), Segment(4.0, 6.0, "with the budget.")]
+    assert drop_echoes([Segment(3.1, 6.0, "let's start with the budget")], system) == ([], 1)
+
+
+def test_thai_echo_is_found() -> None:
+    system = [Segment(6.0, 9.0, "งบประมาณปีนี้เพิ่มขึ้น")]
+    assert drop_echoes([Segment(6.1, 9.0, "งบประมาณปีนี้เพิ่มขึ้นครับ")], system) == ([], 1)
+
+
+def test_my_own_words_over_system_audio_are_kept() -> None:
+    mine = Segment(7.0, 8.0, "I disagree")
+    assert drop_echoes([mine], [Segment(6.5, 8.5, "the numbers look fine")]) == ([mine], 0)
+
+
+def test_same_words_at_another_time_are_kept() -> None:
+    mine = Segment(40.0, 41.0, "sounds good")
+    assert drop_echoes([mine], [Segment(10.0, 11.0, "sounds good")]) == ([mine], 0)
+
+
+def test_echo_tolerates_a_second_of_timing_difference_only() -> None:
+    system = [Segment(10.0, 12.0, "the deadline is Friday")]
+    assert drop_echoes([Segment(12.8, 14.0, "the deadline is Friday")], system) == ([], 1)
+    late = Segment(13.5, 15.0, "the deadline is Friday")
+    assert drop_echoes([late], system) == ([late], 0)
+
+
+def test_a_line_without_letters_is_not_an_echo() -> None:
+    mine = Segment(1.0, 2.0, "...")
+    assert drop_echoes([mine], [Segment(1.0, 2.0, "...")]) == ([mine], 0)
+
+
+def test_a_short_line_sharing_stray_letters_is_not_an_echo() -> None:
+    mine = Segment(0.0, 1.0, "Hi all")
+    assert drop_echoes([mine], [Segment(2.0, 3.0, "Hello, let's start")]) == ([mine], 0)
+
+
+def _words(*spans: tuple[float, float, str]) -> tuple[Word, ...]:
+    return tuple(Word(start, end, text) for start, end, text in spans)
+
+
+def test_a_line_spanning_two_speakers_is_split_between_them():
+    words = _words((0, 0.5, " Is"), (0.5, 1, " the"), (1, 1.8, " budget"), (1.8, 2.8, " ready?"),
+                   (3.1, 3.8, " Yes,"), (3.8, 4.5, " it's"), (4.5, 6, " done."))
+    line = Segment(0, 6, "Is the budget ready? Yes, it's done.", words=words)
+    turns = [SpeakerTurn(0, 3, "A"), SpeakerTurn(3, 6, "B")]
+    assert label_track([line], "mic", "mic", turns) == [
+        Segment(0, 2.8, "Is the budget ready?", "Speaker 1"),
+        Segment(3.1, 6, "Yes, it's done.", "Speaker 2"),
+    ]
+
+
+def test_a_short_blip_of_another_speaker_does_not_split_the_line():
+    words = _words((0, 2, " We"), (2, 2.6, " should"), (2.6, 4, " ship"), (4, 6, " Friday."))
+    line = Segment(0, 6, "We should ship Friday.", words=words)
+    turns = [SpeakerTurn(0, 2, "A"), SpeakerTurn(2, 2.6, "B"), SpeakerTurn(2.6, 6, "A")]
+    assert label_track([line], "mic", "mic", turns) == [Segment(0, 6, "We should ship Friday.", "Speaker 1")]
+
+
+def test_split_thai_words_are_joined_without_spaces():
+    words = _words((0, 1, "งบ"), (1, 2, "ประมาณ"), (2, 3, "ปีนี้"), (3, 4, " OK"), (4, 5, " ครับ"))
+    line = Segment(0, 5, "งบประมาณปีนี้ OK ครับ", words=words)
+    turns = [SpeakerTurn(0, 3, "A"), SpeakerTurn(3, 5, "B")]
+    assert [(s.text, s.speaker) for s in label_track([line], "mic", "mic", turns)] == [
+        ("งบประมาณปีนี้", "Speaker 1"), ("OK ครับ", "Speaker 2"),
+    ]
+
+
+def test_a_line_without_word_times_keeps_the_whole_line_rule():
+    turns = [SpeakerTurn(9.0, 11.0, "A"), SpeakerTurn(11.0, 15.0, "B")]
+    assert label_track([Segment(10.0, 14.0, "x")], "mic", "mic", turns) == [Segment(10.0, 14.0, "x", "Speaker 1")]
+
+
+def test_online_call_mic_lines_stay_whole_and_you():
+    line = Segment(0, 6, "a b", words=_words((0, 3, " a"), (3, 6, " b")))
+    assert label_track([line], "mic", "mic+system", None) == [Segment(0, 6, "a b", "You")]
+
+
+def test_segments_are_stored_without_their_words():
+    line = Segment(0, 1, "a", "Speaker 1", words=_words((0, 1, " a")))
+    assert line.to_dict() == {"start": 0, "end": 1, "text": "a", "speaker": "Speaker 1"}
+
+
+def test_an_imported_file_has_one_track_labelled_like_an_in_person_meeting():
+    assert make_meeting(mode="file").tracks == ["file"]
+    turns = [SpeakerTurn(0, 2, "A")]
+    assert label_track([Segment(0, 1, "x")], "file", "file", turns)[0].speaker == "Speaker 1"
+    assert label_track([Segment(0, 1, "x")], "file", "file", None)[0].speaker is None
