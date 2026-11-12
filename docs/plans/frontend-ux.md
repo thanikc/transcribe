@@ -1,7 +1,7 @@
 # Plan: web page UX improvements
 
 Sixteen independent plans from a review of `frontend/`. Each can be implemented alone unless its
-"Touches" line says otherwise. Nothing here is started.
+"Touches" line says otherwise. All sixteen are implemented, in the suggested order, one commit each.
 
 For every plan that is implemented:
 
