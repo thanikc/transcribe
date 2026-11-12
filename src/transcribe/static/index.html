@@ -1,112 +1,13 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meetings</title>
-<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/layout.css">
-<link rel="stylesheet" href="/static/css/sidebar.css">
-<link rel="stylesheet" href="/static/css/meeting.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meetings</title>
+  <script type="module" crossorigin src="/static/js/main.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/css/main.css">
 </head>
 <body>
-<div class="app-shell">
-  <!-- Persistent Slim Recording & Capture Dock -->
-  <header class="top-dock" aria-labelledby="rec-h">
-    <h2 id="rec-h" class="sr-only">Recording</h2>
-    <div class="dock-inner">
-      <div class="brand-group">
-        <h1>Meetings</h1>
-        <p id="status" role="status" aria-live="polite">Not recording</p>
-      </div>
-
-      <div class="rec-controls">
-        <label for="title" class="sr-only">Title</label>
-        <input type="text" id="title" class="title-input" placeholder="Meeting title…" autocomplete="off">
-        <button type="button" id="toggle" class="primary">Start recording</button>
-        <div id="meters" hidden></div>
-      </div>
-
-      <div class="dock-drawers">
-        <!-- Collapsible Capture & Speech Model Settings Drawer -->
-        <details class="popover" id="settings-drawer">
-          <summary id="settings-summary" title="Capture mode, language, speech model, and audio devices">Settings</summary>
-          <div class="popover-body">
-            <label for="mode">Mode</label>
-            <select id="mode">
-              <option value="mic">In person (mic)</option>
-              <option value="mic+system">Online call (mic + system audio)</option>
-            </select>
-            <label for="language">Language</label>
-            <select id="language">
-              <option value="auto">Auto</option>
-              <option value="th">ไทย</option>
-              <option value="en">English</option>
-            </select>
-            <label for="model">Speech model</label>
-            <select id="model"></select>
-            <label for="source-mic">Microphone</label>
-            <select id="source-mic"></select>
-            <label for="source-system">System audio from</label>
-            <select id="source-system"></select>
-            <div id="source-error" class="err" role="alert"></div>
-          </div>
-        </details>
-
-        <!-- Collapsible Audio Import Drawer -->
-        <details class="popover" id="import-drawer">
-          <summary title="Import an existing audio or video file">Import audio</summary>
-          <div class="popover-body">
-            <label for="import-file">Import audio file</label>
-            <div class="row" style="margin-top:4px">
-              <div><input type="file" id="import-file" accept="audio/*,video/*"></div>
-              <button type="button" id="import" disabled>Import</button>
-            </div>
-            <p class="muted" style="margin:8px 0 0;font-size:var(--text-xs)">Uses the title, language and speech model selected. Without a title, the file name is used.</p>
-            <div id="import-error" class="err" role="alert"></div>
-          </div>
-        </details>
-      </div>
-    </div>
-    <div id="rec-error" class="err" role="alert"></div>
-  </header>
-
-  <main>
-    <!-- Left Rail: Search, Meetings Index & Version -->
-    <aside class="sidebar">
-      <section class="sidebar-section" aria-labelledby="search-h">
-        <h2 id="search-h">Search transcripts</h2>
-        <form id="search-form" role="search">
-          <label for="q" class="sr-only">Search</label>
-          <div class="row">
-            <div><input type="search" id="q" placeholder="Search words…"></div>
-            <button type="submit">Search</button>
-          </div>
-        </form>
-        <div id="hits"></div>
-      </section>
-
-      <section class="sidebar-list-section" aria-labelledby="list-h">
-        <h2 id="list-h">Past meetings</h2>
-        <ul class="list" id="meetings"></ul>
-        <p class="muted" id="no-meetings" style="font-size:var(--text-xs);margin:var(--sp-2) 0 0" hidden>No meetings yet.</p>
-      </section>
-
-      <footer>
-        <p id="version" aria-live="polite" style="margin:0"></p>
-        <div id="update-error" class="err" role="alert"></div>
-      </footer>
-    </aside>
-
-    <!-- Right Column: Maximized Transcript Reading Canvas -->
-    <section aria-labelledby="view-h" id="view-section">
-      <h2 id="view-h" class="sr-only">Meeting</h2>
-      <div id="view"><p class="empty-state">Select a meeting to see its transcript.</p></div>
-    </section>
-  </main>
-</div>
-
-<script type="module" src="/static/js/main.js"></script>
+  <div id="root"></div>
 </body>
 </html>

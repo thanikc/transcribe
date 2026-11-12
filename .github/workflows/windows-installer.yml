@@ -6,6 +6,7 @@ on:
     branches: ["**"]  # builds an artifact when the installer or the app changes
     paths:
       - "installer/**"
+      - "frontend/**"
       - "src/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -29,6 +30,18 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Build and test frontend
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run test
+          npm --prefix frontend run build
 
       - name: Test
         run: |

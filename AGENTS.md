@@ -9,7 +9,11 @@ The spec is in `docs/specs/meeting-recorder.md` and the scenarios in
 
 ```
 uv sync                                  # install (Python 3.12, pinned in .python-version)
-uv run pytest -q                         # all tests; no audio devices or models needed
+uv run pytest -q                         # all backend/domain tests; no audio devices or models needed
+npm --prefix frontend install            # install React + Vitest + Playwright dependencies
+npm --prefix frontend run build          # typecheck & build React UI into src/transcribe/static/
+npm --prefix frontend run test           # run Vitest + React Testing Library component tests
+npm --prefix frontend run test:e2e       # run Playwright E2E tests against `transcribe serve --fake`
 uv run transcribe serve --fake --port 8799   # service with fake capture/STT, for UI work in WSL
 uv run transcribe --help
 ```
@@ -27,7 +31,7 @@ src/transcribe/
   recorder.py    port Protocols (AudioCapture, SpeechToText, SpeakerDiarizer) + Recorder orchestration + the one-at-a-time job worker
   capture.py     soundcard adapter      stt.py      faster-whisper adapter
   diarize.py     sherpa-onnx adapter
-  web.py         Starlette JSON API + static/index.html and static/js/*.js (plain ES modules, no build step);
+  web.py         Starlette JSON API + serves built React bundle from static/index.html, static/js/main.js, static/css/main.css;
                  origin/content-type guard on POST/DELETE, trusted hosts
   client.py      HTTP client + text formatting shared by the MCP shim and the CLI
   mcp_server.py  stdio MCP tools -> client
@@ -36,6 +40,7 @@ src/transcribe/
   desktop.py     pure tray logic: icon state/image, Claude Desktop config merge, single-instance check
   tray.py        Windows tray app (pystray, winreg), runs the service in-process; `transcribe-tray` gui-script
   devfakes.py    fakes for `serve --fake`
+frontend/        React + TypeScript + Vite web app (`src/`), Vitest component tests (`src/__tests__/`), and Playwright E2E tests (`e2e/`)
 installer/       Inno Setup script + the .cmd steps it runs (uv sync, download-models)
 .github/workflows/windows-installer.yml   builds Transcribe-Setup-<version>.exe; the version is the latest git tag (1.2.3 or v1.2.3)
 ```
