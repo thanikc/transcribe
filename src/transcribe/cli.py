@@ -95,7 +95,7 @@ def _serve(port: int, fake: bool) -> int:
         print(
             f"The virtualenv is on a network path ({sys.prefix}), where Windows cannot load numpy.\n"
             "Start the service with transcribe.cmd from the repo, or set UV_PROJECT_ENVIRONMENT "
-            "to a folder on a Windows drive (see the README).",
+            "to a folder on a Windows drive (see DEV.md).",
             file=sys.stderr,
         )
         return 1
