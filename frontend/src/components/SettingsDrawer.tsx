@@ -5,12 +5,9 @@ import {
   defaultModelName,
   formatModelOption,
   LANG_LABEL,
-  SHORT_MODE,
 } from "../utils";
 
 interface SettingsDrawerProps {
-  mode: string;
-  onModeChange: (mode: string) => void;
   language: string;
   onLanguageChange: (language: string) => void;
   model: string;
@@ -32,8 +29,6 @@ function buildSourceOptions(cfg?: TrackSourceConfig): [string, string][] {
 }
 
 export function SettingsDrawer({
-  mode,
-  onModeChange,
   language,
   onLanguageChange,
   model,
@@ -72,10 +67,9 @@ export function SettingsDrawer({
     }
   };
 
-  const summaryMode = SHORT_MODE[mode] || mode;
   const summaryLang = LANG_LABEL[language] || language;
   const summaryModel = model || defaultModelName(models) || "model";
-  const summaryText = `${summaryMode} · ${summaryLang} · ${summaryModel}`;
+  const summaryText = `${summaryLang} · ${summaryModel}`;
 
   const micOptions = buildSourceOptions(sources.mic);
   const sysOptions = buildSourceOptions(sources.system);
@@ -95,21 +89,12 @@ export function SettingsDrawer({
     >
       <summary
         id="settings-summary"
-        title="Capture mode, language, speech model, and audio devices"
+        title="Language, speech model, and audio devices"
       >
-        {summaryText}
+        <span className="summary-label">Settings</span>
+        <span>{summaryText}</span>
       </summary>
       <div className="popover-body">
-        <label htmlFor="mode">Mode</label>
-        <select
-          id="mode"
-          value={mode}
-          onChange={(e) => onModeChange(e.target.value)}
-        >
-          <option value="mic">In person (mic)</option>
-          <option value="mic+system">Online call (mic + system audio)</option>
-        </select>
-
         <label htmlFor="language">Language</label>
         <select
           id="language"
@@ -147,7 +132,7 @@ export function SettingsDrawer({
           ))}
         </select>
 
-        <label htmlFor="source-system">System audio from</label>
+        <label htmlFor="source-system">System audio from (online calls)</label>
         <select
           id="source-system"
           value={sysVal}

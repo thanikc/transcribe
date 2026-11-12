@@ -46,6 +46,7 @@ export interface RecorderStatus {
   recording: boolean;
   meeting_id?: string;
   title?: string;
+  mode?: CaptureMode | string;
   elapsed?: number;
   levels?: Record<string, number>;
 }

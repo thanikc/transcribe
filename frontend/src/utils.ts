@@ -29,11 +29,6 @@ export const MODE_LABEL: Record<string, string> = {
   file: "Imported file",
 };
 
-export const SHORT_MODE: Record<string, string> = {
-  mic: "Mic",
-  "mic+system": "Mic + Sys",
-};
-
 export const MODEL_NOTE: Record<string, string> = {
   "large-v3": "most accurate, slower",
   "large-v3-turbo": "faster, needs about half the memory",

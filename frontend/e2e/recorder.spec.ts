@@ -14,11 +14,11 @@ test.describe("Meetings Recorder E2E", () => {
     );
 
     const settingsSummary = page.locator("#settings-summary");
-    await expect(settingsSummary).toContainText("Mic · Auto · large-v3");
+    await expect(settingsSummary).toContainText("Auto · large-v3");
     await settingsSummary.click();
     await expect(page.locator("#settings-drawer")).toHaveAttribute("open", "");
     await page.locator("#language").selectOption("th");
-    await expect(settingsSummary).toContainText("Mic · ไทย · large-v3");
+    await expect(settingsSummary).toContainText("ไทย · large-v3");
 
     // Escape closes the open popover
     await page.keyboard.press("Escape");

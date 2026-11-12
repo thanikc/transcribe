@@ -5,6 +5,11 @@ import { ImportDrawer } from "./ImportDrawer";
 import { LevelMeters } from "./LevelMeters";
 import { SettingsDrawer } from "./SettingsDrawer";
 
+const MODES: [string, string, string][] = [
+  ["mic", "In person", "Microphone only"],
+  ["mic+system", "Online call", "Microphone + what your speakers play"],
+];
+
 interface TopDockProps {
   recording: boolean;
   busy: boolean;
@@ -128,6 +133,26 @@ export function TopDock({
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
           />
+          <div
+            className="mode-switch"
+            role="radiogroup"
+            aria-label="Mode"
+            aria-disabled={recording || undefined}
+          >
+            {MODES.map(([value, label, hint]) => (
+              <label key={value} title={hint}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value={value}
+                  checked={mode === value}
+                  disabled={recording || busy}
+                  onChange={() => onModeChange(value)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
           <button
             type="button"
             id="toggle"
@@ -142,8 +167,6 @@ export function TopDock({
 
         <div className="dock-drawers">
           <SettingsDrawer
-            mode={mode}
-            onModeChange={onModeChange}
             language={language}
             onLanguageChange={onLanguageChange}
             model={model}

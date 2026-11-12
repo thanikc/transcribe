@@ -225,13 +225,20 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Start and stop a recording from the web page
     Given the web page shows "Not recording"
-    When I enter title "Design review", pick "mic+system" and press Start
+    When I enter title "Design review", choose "Online call" on the mode switch next to Start and press Start
     Then the page shows "● Recording" with an elapsed time that increases
     When I press Stop
     Then the page shows "Not recording"
     And the meeting appears at the top of the list as "transcribing"
     And the page opens that meeting showing "Transcribing…"
     And when transcription finishes, its transcript appears and its status shows "transcribed", without a page reload
+
+  Scenario: The page remembers the mode and locks it while recording
+    Given I chose "Online call" on the mode switch
+    When I open the web page again
+    Then "Online call" is still chosen
+    When a recording in "mic" mode is active
+    Then the mode switch shows "In person" and cannot be changed until it stops
 
   Scenario: The web page reflects a recording started elsewhere
     Given Claude started a recording "Standup"

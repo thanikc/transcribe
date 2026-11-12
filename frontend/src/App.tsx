@@ -16,6 +16,16 @@ import {
 } from "./utils";
 
 const MODEL_KEY = "transcribe.model";
+const MODE_KEY = "transcribe.mode";
+
+function savedMode(): string {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    return v === "mic" || v === "mic+system" ? v : "mic";
+  } catch {
+    return "mic";
+  }
+}
 const OFFLINE_AFTER = 3;
 
 export const inProgress = (d: MeetingDetail | null): boolean =>
@@ -38,7 +48,8 @@ export function App() {
 
   // Recording settings
   const [title, setTitle] = useState("");
-  const [mode, setMode] = useState("mic");
+  const [mode, setMode] = useState(savedMode);
+  const [recMode, setRecMode] = useState("");
   const [language, setLanguage] = useState("auto");
   const [models, setModels] = useState<SpeechModelInfo[]>([]);
   const [model, setModel] = useState("");
@@ -104,6 +115,7 @@ export function App() {
       setRecording(nowRec);
       if (nowRec) {
         setRecTitle(st.title || st.meeting_id || "");
+        setRecMode(st.mode || "");
         setElapsed(st.elapsed || 0);
         setElapsedAt(performance.now());
         setLevels(st.levels || null);
@@ -125,6 +137,15 @@ export function App() {
       if (failedPollsRef.current >= OFFLINE_AFTER) setOffline(true);
     }
   }, [loadMeetings, loadModels]);
+
+  const handleModeChange = (nextMode: string) => {
+    setMode(nextMode);
+    try {
+      localStorage.setItem(MODE_KEY, nextMode);
+    } catch {
+      /* private window */
+    }
+  };
 
   const handleModelChange = (nextModel: string) => {
     setModel(nextModel);
@@ -297,6 +318,7 @@ export function App() {
         recordingRef.current = true;
         setRecording(true);
         setRecTitle(r.meeting.title || r.meeting.id);
+        setRecMode(r.meeting.mode);
         setElapsed(0);
         setElapsedAt(performance.now());
         loadMeetings();
@@ -328,8 +350,8 @@ export function App() {
         recError={recError}
         title={title}
         onTitleChange={setTitle}
-        mode={mode}
-        onModeChange={setMode}
+        mode={recording && recMode ? recMode : mode}
+        onModeChange={handleModeChange}
         language={language}
         onLanguageChange={setLanguage}
         model={model}
