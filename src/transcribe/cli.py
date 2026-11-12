@@ -133,7 +133,7 @@ def _download_models() -> int:
 def _record(args: argparse.Namespace) -> int:
     client = _client()
     meeting = client.start(args.title, args.mode, args.language)
-    print(f'Started "{meeting["title"]}" ({meeting["id"]}). Recording… press Ctrl+C to stop')
+    print(f'Started "{meeting["title"] or meeting["id"]}" ({meeting["id"]}). Recording… press Ctrl+C to stop')
     try:
         while True:
             time.sleep(1)

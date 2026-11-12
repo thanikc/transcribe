@@ -164,6 +164,11 @@ Feature: Record, transcribe and read local meetings
     Then the meeting id is "2026-11-11-1430"
     And the meeting title is "ประชุมทีม"
 
+  Scenario: A meeting without a title is shown by its id
+    When I start recording with an empty title at 2026-11-11 14:30
+    Then the meeting id is "2026-11-11-1430"
+    And start_recording, list_meetings and get_transcript show "2026-11-11-1430" where the title would be
+
   Scenario: Thai text survives storage, the API and MCP unchanged
     Given a mic track that transcribes to "สวัสดีครับ เริ่มประชุมกันเลย"
     When the meeting is transcribed

@@ -85,7 +85,7 @@ def meeting_line(m: dict) -> str:
     """One listing line: id, title, start time, duration, status."""
     start = m["started_at"][:16].replace("T", " ")
     status = m["status"] + (f" ({_step(m['progress'])})" if m.get("progress") else "")
-    return f"{m['id']}  {m['title']}  {start}  {_clock(m['duration'])}  {status}"
+    return f"{m['id']}  {m['title'] or m['id']}  {start}  {_clock(m['duration'])}  {status}"
 
 
 def transcript_text(detail: dict) -> str:
@@ -99,7 +99,7 @@ def transcript_text(detail: dict) -> str:
     if language == "auto" and m["detected_languages"]:
         language = "auto (detected: " + ", ".join(sorted(set(m["detected_languages"].values()))) + ")"
     header = [
-        m["title"],
+        m["title"] or m["id"],
         f"Date: {m['started_at'][:16].replace('T', ' ')}",
         f"Language: {language}",
     ]

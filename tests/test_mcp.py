@@ -53,6 +53,13 @@ def test_start_stop_then_list(rig: Rig) -> None:
     assert listing.splitlines() == ["2026-11-11-1430-design-review  Design review  2026-11-11 14:30  00:00  transcribed"]
 
 
+def test_meeting_without_title_is_shown_by_its_id(rig: Rig) -> None:
+    assert rig.call("start_recording", title="", mode="mic") == 'Recording started: "2026-11-11-1430" (id 2026-11-11-1430).'
+    rig.call("stop_recording")
+    assert rig.call("list_meetings") == "2026-11-11-1430  2026-11-11-1430  2026-11-11 14:30  00:00  transcribed"
+    assert rig.call("get_transcript", meeting_id="2026-11-11-1430").startswith("2026-11-11-1430\nDate:")
+
+
 def test_stop_recording_started_from_the_web_page(rig: Rig) -> None:
     rig.recorder.start("From the web", "mic")
     assert "2026-11-11-1430-from-the-web" in rig.call("stop_recording")
