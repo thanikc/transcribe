@@ -8,7 +8,8 @@ from pathlib import Path
 
 from transcribe.recorder import CaptureError
 
-SAMPLE_RATE = 48000
+# What Whisper and the speaker models work at; WASAPI resamples to it (soundcard asks for AUTOCONVERTPCM).
+SAMPLE_RATE = 16000
 BLOCK_FRAMES = SAMPLE_RATE // 2
 
 

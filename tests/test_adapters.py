@@ -1,6 +1,8 @@
 import subprocess
 import sys
 
+import pytest
+
 
 def test_importing_adapters_does_not_load_heavy_libraries():
     code = (
@@ -159,3 +161,41 @@ def test_the_installers_model_choices_are_models_faster_whisper_can_download():
     for name in MODEL_SIZES:
         assert name in _MODELS
         assert f"'{name}'" in installer
+
+
+def _write_wav(path, rate: int, channels: int, samples) -> None:
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(np.asarray(samples, dtype="<i2").tobytes())
+
+
+@pytest.mark.parametrize("chunk", [7, 1 << 20])
+def test_read_mono_resamples_48k_to_16k_across_chunks(tmp_path, monkeypatch, chunk):
+    import numpy as np
+
+    from transcribe import diarize
+
+    monkeypatch.setattr(diarize, "_CHUNK_FRAMES", chunk)
+    ramp = np.arange(4800) * 4  # linear, so interpolation is exact
+    _write_wav(tmp_path / "a.wav", 48000, 1, ramp)
+    mono = diarize._read_mono(tmp_path / "a.wav", 16000)
+    assert mono.dtype == np.float32 and len(mono) == 1600
+    np.testing.assert_allclose(mono, ramp[::3] / 32768, atol=1e-6)
+
+
+def test_read_mono_mixes_channels_and_keeps_matching_rate(tmp_path, monkeypatch):
+    import numpy as np
+
+    from transcribe import diarize
+
+    monkeypatch.setattr(diarize, "_CHUNK_FRAMES", 5)
+    stereo = np.column_stack([np.full(100, 1000), np.full(100, 3000)]).ravel()
+    _write_wav(tmp_path / "s.wav", 16000, 2, stereo)
+    mono = diarize._read_mono(tmp_path / "s.wav", 16000)
+    np.testing.assert_allclose(mono, np.full(100, 2000 / 32768), atol=1e-6)

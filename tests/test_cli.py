@@ -52,6 +52,14 @@ def test_list_show_search(recorder: Recorder, capsys: pytest.CaptureFixture[str]
     assert "2026-11-11-1430-weekly [00:03] Speaker 2: Budget looks fine" in capsys.readouterr().out
 
 
+def test_search_hit_without_a_speaker_has_no_label() -> None:
+    from transcribe.client import hit_line
+
+    hit = {"meeting_id": "m1", "timestamp": "[00:01]", "speaker": None, "text": "hello"}
+    assert hit_line(hit) == "m1 [00:01] hello"
+    assert hit_line({**hit, "speaker": "You"}) == "m1 [00:01] You: hello"
+
+
 def test_show_not_ready_prints_message(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
     recorder.start("Live", "mic")
     assert cli.main(["show", "2026-11-11-1430-live"]) == 0

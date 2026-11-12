@@ -456,3 +456,30 @@ def test_delete_refuses_a_transcribing_meeting(rig: Rig) -> None:
 def test_delete_unknown_meeting(rig: Rig) -> None:
     with pytest.raises(MeetingNotFound):
         rig.recorder.delete("nope")
+
+
+def test_status_answers_while_audio_devices_are_opening(rig: Rig) -> None:
+    import threading
+
+    opening, release = threading.Event(), threading.Event()
+    start = rig.capture.start
+
+    def slow_start(track_paths):
+        opening.set()
+        release.wait(5)
+        return start(track_paths)
+
+    rig.capture.start = slow_start
+    starter = threading.Thread(target=lambda: rig.recorder.start("Live", "mic"))
+    starter.start()
+    try:
+        assert opening.wait(5)
+        answered = []
+        poll = threading.Thread(target=lambda: answered.append(rig.recorder.status()))
+        poll.start()
+        poll.join(1)
+        assert answered == [{"recording": False}]
+    finally:
+        release.set()
+        starter.join(5)
+    assert rig.recorder.status()["recording"] is True
