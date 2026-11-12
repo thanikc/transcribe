@@ -84,7 +84,7 @@ test.describe("Meetings Recorder E2E", () => {
     );
     await expect(page.locator("#hits .hit mark")).toHaveText("budget");
     await page.locator("#hits .hit").click();
-    await expect(page.locator("ol.transcript li.focus")).toContainText(
+    await expect(page.locator("ol.transcript .seg.focus")).toContainText(
       "Let's start with the budget.",
     );
 

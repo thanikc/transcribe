@@ -251,6 +251,20 @@ Feature: Record, transcribe and read local meetings
     Then I see its transcript with timestamps and speakers
     And an audio player for the mic track and one for the system track
 
+  Scenario: The transcript reads as speaker turns
+    Given a transcribed meeting where "Speaker 1" says two lines in a row, then "Speaker 2" answers
+    When I open it on the web page
+    Then "Speaker 1"'s two lines are one turn with the speaker named once, followed by a turn for "Speaker 2"
+
+  Scenario: A long monologue is broken into paragraphs
+    Given one speaker talks for three minutes without a pause over 2 seconds
+    Then their lines are shown as turns of at most 60 seconds each
+    And a pause over 2 seconds also starts a new paragraph
+
+  Scenario: Filtering by speaker hides whole turns
+    When I filter the transcript by "Speaker 2"
+    Then only "Speaker 2"'s turns are shown
+
   Scenario: First run says how to make a meeting
     Given there are no meetings yet
     When I open the web page

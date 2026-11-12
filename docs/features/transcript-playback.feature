@@ -14,8 +14,14 @@ Feature: Play the audio from a transcript line
 
   Scenario: The line being played is highlighted
     Given a track is playing
-    Then the line of that track whose time span holds the play position is highlighted
-    And no other line is highlighted
+    Then the sentence of that track whose time span holds the play position is highlighted
+    And no other sentence is highlighted
+
+  Scenario: Clicking a sentence plays from it
+    Given I am viewing a transcribed meeting
+    When I click a sentence inside a speaker's turn
+    Then its track plays from that sentence's start
+    But a click that ends a text selection does not start playback
 
   Scenario: Timestamps work from the keyboard
     When I tab to a timestamp and press Enter

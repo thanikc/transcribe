@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Meeting, TranscriptSegment } from "../types";
-import { mmss } from "../utils";
+import { mmss, type Turn } from "../utils";
 import { InlineEdit, PencilIcon } from "./InlineEdit";
 
 export function trackOf(m: Meeting, s: TranscriptSegment): string {
@@ -10,8 +10,9 @@ export function trackOf(m: Meeting, s: TranscriptSegment): string {
 
 interface TranscriptListProps {
   meeting: Meeting;
-  segments: TranscriptSegment[];
+  turns: Turn[];
   activeSpeaker: string | null;
+  /** `index` is a line's place in the whole transcript. */
   focusAt: { index: number; nonce: number } | null;
   playingPosition: { track: string; time: number } | null;
   onPlayFrom: (track: string, start: number) => void;
@@ -22,7 +23,7 @@ interface TranscriptListProps {
 
 export function TranscriptList({
   meeting,
-  segments,
+  turns,
   activeSpeaker,
   focusAt,
   playingPosition,
@@ -37,82 +38,106 @@ export function TranscriptList({
   useEffect(() => {
     if (!focusAt) return;
     setFlashAt(focusAt.index);
-    const row = listRef.current?.children[focusAt.index] as HTMLElement | undefined;
-    row?.scrollIntoView?.({ block: "center" });
+    const line = listRef.current?.querySelector<HTMLElement>(
+      `[data-index="${focusAt.index}"]`,
+    );
+    line?.scrollIntoView?.({ block: "center" });
     const timer = setTimeout(() => setFlashAt(null), 2000);
     return () => clearTimeout(timer);
   }, [focusAt]);
 
   return (
     <ol className="transcript" aria-label="Transcript" ref={listRef}>
-      {segments.map((s, idx) => {
-        const track = trackOf(meeting, s);
-        const isPlaying =
-          playingPosition !== null &&
-          playingPosition.track === track &&
-          playingPosition.time >= s.start &&
-          playingPosition.time < s.end;
-        const classes = [
-          s.speaker ? "" : "no-speaker",
-          isPlaying ? "playing" : "",
-          flashAt === idx ? "focus" : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        const shownSpeaker = s.speaker
-          ? meeting.speaker_names?.[s.speaker] || s.speaker
-          : null;
-
+      {turns.map((turn, turnIdx) => {
+        const raw = turn.speaker;
+        const shownSpeaker = raw ? meeting.speaker_names?.[raw] || raw : null;
         return (
           <li
-            key={`${s.start}-${s.end}-${idx}`}
-            className={classes}
-            data-track={track}
-            data-start={s.start}
-            data-end={s.end}
-            hidden={Boolean(activeSpeaker && s.speaker !== activeSpeaker)}
+            key={`${turn.start}-${turn.lines[0].index}`}
+            className={raw ? "turn" : "turn no-speaker"}
+            data-track={turn.track}
+            data-start={turn.start}
+            style={raw ? { borderLeftColor: colourOf(raw) } : undefined}
+            hidden={Boolean(activeSpeaker && raw !== activeSpeaker)}
           >
-            <button
-              type="button"
-              className="ts"
-              title="Play from here"
-              onClick={() => onPlayFrom(track, s.start)}
-            >
-              {`[${mmss(s.start)}]`}
-            </button>
-            {s.speaker && shownSpeaker && (
-              <span className="spk-wrap">
-                <button
-                  type="button"
-                  className="spk"
-                  title="Rename this speaker"
-                  aria-expanded={editingAt === idx}
-                  style={{ color: colourOf(s.speaker) }}
-                  onClick={() => setEditingAt(editingAt === idx ? null : idx)}
-                >
-                  {shownSpeaker}
-                  <PencilIcon />
-                </button>
-                {editingAt === idx && (
-                  <InlineEdit
-                    className="spk-popover"
-                    label={`Name for ${s.speaker}`}
-                    placeholder={s.speaker}
-                    initial={shownSpeaker === s.speaker ? "" : shownSpeaker}
-                    onLeave="cancel"
-                    showSave
-                    resetLabel={
-                      shownSpeaker !== s.speaker
-                        ? `Reset to ${s.speaker}`
-                        : undefined
+            <div className="turn-head">
+              {raw && shownSpeaker && (
+                <span className="spk-wrap">
+                  <button
+                    type="button"
+                    className="spk"
+                    title="Rename this speaker"
+                    aria-expanded={editingAt === turnIdx}
+                    style={{ color: colourOf(raw) }}
+                    onClick={() =>
+                      setEditingAt(editingAt === turnIdx ? null : turnIdx)
                     }
-                    onSave={(name) => onRenameSpeaker(s.speaker!, name)}
-                    onClose={() => setEditingAt(null)}
-                  />
-                )}
-              </span>
-            )}
-            <span className="seg-text">{s.text}</span>
+                  >
+                    {shownSpeaker}
+                    <PencilIcon />
+                  </button>
+                  {editingAt === turnIdx && (
+                    <InlineEdit
+                      className="spk-popover"
+                      label={`Name for ${raw}`}
+                      placeholder={raw}
+                      initial={shownSpeaker === raw ? "" : shownSpeaker}
+                      onLeave="cancel"
+                      showSave
+                      resetLabel={
+                        shownSpeaker !== raw ? `Reset to ${raw}` : undefined
+                      }
+                      onSave={(name) => onRenameSpeaker(raw, name)}
+                      onClose={() => setEditingAt(null)}
+                    />
+                  )}
+                </span>
+              )}
+              <button
+                type="button"
+                className="ts"
+                title="Play from here"
+                onClick={() => onPlayFrom(turn.track, turn.start)}
+              >
+                {`[${mmss(turn.start)}]`}
+              </button>
+            </div>
+            <p className="turn-text">
+              {turn.lines.map(({ segment: s, index }, i) => {
+                const playing =
+                  playingPosition !== null &&
+                  playingPosition.track === turn.track &&
+                  playingPosition.time >= s.start &&
+                  playingPosition.time < s.end;
+                const classes = [
+                  "seg",
+                  playing ? "playing" : "",
+                  flashAt === index ? "focus" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <span key={index}>
+                    {i > 0 && " "}
+                    <span
+                      className={classes}
+                      data-index={index}
+                      data-start={s.start}
+                      data-end={s.end}
+                      title={`Play from ${mmss(s.start)}`}
+                      onClick={() => {
+                        // a click that ends a text selection is for copying, not playing
+                        const sel = window.getSelection();
+                        if (sel && !sel.isCollapsed) return;
+                        onPlayFrom(turn.track, s.start);
+                      }}
+                    >
+                      {s.text}
+                    </span>
+                  </span>
+                );
+              })}
+            </p>
           </li>
         );
       })}

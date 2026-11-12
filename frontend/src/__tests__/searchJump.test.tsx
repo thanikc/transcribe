@@ -38,7 +38,7 @@ describe("search hit opens the matching line", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     await screen.findByText("line 0");
     await userEvent.click(screen.getByRole("button", { name: "Speaker 1", pressed: false }));
-    expect(screen.getByText("Let's start with the budget.", { selector: ".seg-text" }).closest("li")).toHaveAttribute("hidden");
+    expect(screen.getByText("Let's start with the budget.", { selector: ".seg" }).closest("li")).toHaveAttribute("hidden");
 
     await userEvent.type(screen.getByPlaceholderText("Search words…"), "BUDGET{Enter}");
     const hit = await screen.findByRole("button", { name: /\[01:30\]/ });
@@ -47,9 +47,9 @@ describe("search hit opens the matching line", () => {
     await userEvent.click(hit);
     expect(window.location.hash).toBe("#/meeting/m-1?t=90");
     await waitFor(() => {
-      const row = screen.getByText("Let's start with the budget.", { selector: ".seg-text" }).closest("li")!;
-      expect(row).toHaveClass("focus");
-      expect(row).not.toHaveAttribute("hidden");
+      const line = screen.getByText("Let's start with the budget.", { selector: ".seg" });
+      expect(line).toHaveClass("focus");
+      expect(line.closest("li")).not.toHaveAttribute("hidden");
     });
   });
 
@@ -59,7 +59,7 @@ describe("search hit opens the matching line", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     await screen.findByText("line 0");
     await userEvent.click(screen.getByRole("button", { name: "Collapse transcript" }));
-    expect(screen.queryByText("Let's start with the budget.", { selector: ".seg-text" })).toBeNull();
+    expect(screen.queryByText("Let's start with the budget.", { selector: ".seg" })).toBeNull();
 
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;
@@ -67,7 +67,7 @@ describe("search hit opens the matching line", () => {
     const hit = await screen.findByRole("button", { name: /\[01:30\]/ });
     await userEvent.click(hit);
     await waitFor(() =>
-      expect(screen.getByText("Let's start with the budget.", { selector: ".seg-text" }).closest("li")).toHaveClass("focus"),
+      expect(screen.getByText("Let's start with the budget.", { selector: ".seg" })).toHaveClass("focus"),
     );
     const first = scrolled.mock.calls.length;
     expect(first).toBeGreaterThan(0);

@@ -3,6 +3,7 @@ import {
   defaultModelName,
   fileSize,
   formatModelOption,
+  groupTurns,
   markMatches,
   mmss,
   nearestSegment,
@@ -122,5 +123,53 @@ describe("utils", () => {
     expect(nearestSegment(segs, 3.2)).toBe(1);
     expect(nearestSegment(segs, 100)).toBe(2);
     expect(nearestSegment([], 1)).toBe(-1);
+  });
+});
+
+describe("groupTurns", () => {
+  const seg = (start: number, end: number, speaker: string | null) => ({
+    start,
+    end,
+    speaker,
+    text: `${start}`,
+  });
+  const byTrack = (s: { speaker?: string | null }) =>
+    s.speaker === "You" ? "mic" : "system";
+  const shape = (turns: ReturnType<typeof groupTurns>) =>
+    turns.map((t) => [t.speaker, t.lines.map((l) => l.index)]);
+
+  it("merges consecutive lines of one speaker", () => {
+    expect(
+      shape(groupTurns([seg(0, 2, "A"), seg(2.5, 4, "A"), seg(4, 6, "B"), seg(6, 8, "A")], byTrack)),
+    ).toEqual([["A", [0, 1]], ["B", [2]], ["A", [3]]]);
+  });
+
+  it("splits when the track changes even if the label repeats", () => {
+    const track = (s: { start: number }) => (s.start < 2 ? "mic" : "system");
+    expect(shape(groupTurns([seg(0, 1, "A"), seg(1, 3, "A"), seg(3, 4, "A")], track))).toEqual([
+      ["A", [0, 1]],
+      ["A", [2]],
+    ]);
+  });
+
+  it("closes a turn after 60 s", () => {
+    const lines = Array.from({ length: 8 }, (_, i) => seg(i * 10, i * 10 + 10, "A"));
+    expect(shape(groupTurns(lines, byTrack))).toEqual([
+      ["A", [0, 1, 2, 3, 4, 5]],
+      ["A", [6, 7]],
+    ]);
+  });
+
+  it("closes a turn at a pause over 2 s", () => {
+    expect(shape(groupTurns([seg(0, 2, "A"), seg(4, 5, "A"), seg(7.5, 8, "A")], byTrack))).toEqual([
+      ["A", [0, 1]],
+      ["A", [2]],
+    ]);
+  });
+
+  it("groups an unlabelled transcript on pauses only", () => {
+    const t = groupTurns([seg(0, 2, null), seg(2, 4, null), seg(10, 12, null)], () => "mic");
+    expect(shape(t)).toEqual([[null, [0, 1]], [null, [2]]]);
+    expect(t[1].start).toBe(10);
   });
 });

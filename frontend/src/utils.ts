@@ -143,3 +143,45 @@ export function speakerPalette(
   }
   return palette;
 }
+
+export const TURN_MAX_SECONDS = 60;
+export const TURN_PAUSE_SECONDS = 2;
+
+/** Consecutive lines of one speaker on one track; `index` is the line's place in the transcript. */
+export interface Turn {
+  speaker: string | null;
+  track: string;
+  start: number;
+  lines: { segment: TranscriptSegment; index: number }[];
+}
+
+/**
+ * Groups lines into speaker turns. A turn is closed early once it has run
+ * 60 s or at a pause over 2 s, so long monologues read as paragraphs.
+ */
+export function groupTurns(
+  segments: TranscriptSegment[],
+  trackOf: (s: TranscriptSegment) => string,
+): Turn[] {
+  const turns: Turn[] = [];
+  let current: Turn | null = null;
+  let currentEnd = 0;
+  segments.forEach((segment, index) => {
+    const speaker = segment.speaker ?? null;
+    const track = trackOf(segment);
+    const joins =
+      current !== null &&
+      current.speaker === speaker &&
+      current.track === track &&
+      segment.start - currentEnd <= TURN_PAUSE_SECONDS &&
+      segment.start - current.start < TURN_MAX_SECONDS;
+    if (joins && current) {
+      current.lines.push({ segment, index });
+    } else {
+      current = { speaker, track, start: segment.start, lines: [{ segment, index }] };
+      turns.push(current);
+    }
+    currentEnd = segment.end;
+  });
+  return turns;
+}

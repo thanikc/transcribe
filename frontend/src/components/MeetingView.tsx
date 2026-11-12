@@ -5,6 +5,7 @@ import {
   fileSize,
   LANG_LABEL,
   mmss,
+  groupTurns,
   MODE_LABEL,
   nearestSegment,
   speakerPalette,
@@ -15,10 +16,10 @@ import { InlineEdit, PencilIcon } from "./InlineEdit";
 import { MeetingActions } from "./MeetingActions";
 import { ProgressBox } from "./ProgressBox";
 import { StatusBadge } from "./StatusBadge";
-import { TranscriptList } from "./TranscriptList";
+import { trackOf, TranscriptList } from "./TranscriptList";
 import { TranscriptToolbar } from "./TranscriptToolbar";
 
-const COLLAPSED_LINES = 8;
+const COLLAPSED_TURNS = 4;
 
 interface MeetingViewProps {
   currentId: string | null;
@@ -54,6 +55,13 @@ export function MeetingView({
     track: string;
     time: number;
   } | null>(null);
+  const turns = useMemo(
+    () =>
+      detail?.segments
+        ? groupTurns(detail.segments, (s) => trackOf(detail.meeting, s))
+        : [],
+    [detail],
+  );
   const palette = useMemo(
     () => speakerPalette(detail?.segments),
     [detail?.segments],
@@ -82,12 +90,15 @@ export function MeetingView({
     if (handledFocusRef.current === focus.nonce) return;
     handledFocusRef.current = focus.nonce;
     const index = nearestSegment(segments, focus.t);
-    if (activeSpeaker && segments[index].speaker !== activeSpeaker) {
+    const turnIndex = turns.findIndex((t) =>
+      t.lines.some((l) => l.index === index),
+    );
+    if (activeSpeaker && turns[turnIndex].speaker !== activeSpeaker) {
       setActiveSpeaker(null);
     }
-    if (index >= COLLAPSED_LINES) setCollapsedFor(null);
+    if (turnIndex >= COLLAPSED_TURNS) setCollapsedFor(null);
     setFocusAt({ index, nonce: focus.nonce });
-  }, [focus, detail, currentId, activeSpeaker]);
+  }, [focus, detail, turns, currentId, activeSpeaker]);
 
   const colourOf = (label: string): string => `var(--sp${palette[label] ?? 0})`;
 
@@ -183,10 +194,9 @@ export function MeetingView({
       ...(m.model ? ([["Speech model", m.model]] as [string, string][]) : []),
     ];
 
-    const collapsible = Boolean(segments && segments.length > COLLAPSED_LINES);
+    const collapsible = turns.length > COLLAPSED_TURNS;
     const collapsed = collapsible && collapsedFor === m.id;
-    const visibleSegments =
-      segments && collapsed ? segments.slice(0, COLLAPSED_LINES) : segments;
+    const visibleTurns = collapsed ? turns.slice(0, COLLAPSED_TURNS) : turns;
 
     return (
       <>
@@ -305,7 +315,7 @@ export function MeetingView({
                 />
                 <TranscriptList
                   meeting={m}
-                  segments={visibleSegments || []}
+                  turns={visibleTurns}
                   activeSpeaker={activeSpeaker}
                   focusAt={focusAt}
                   playingPosition={playingPosition}
