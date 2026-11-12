@@ -144,6 +144,13 @@ def test_audio_served(rig: Rig) -> None:
     assert response.content == b"ID3data"
 
 
+def test_meetings_report_audio_size(rig: Rig) -> None:
+    meeting_id = rig.record()
+    rig.recorder.store.track_path(meeting_id, "mic").write_bytes(b"ID3data")
+    assert rig.client.get("/api/meetings").json()["meetings"][0]["audio_bytes"] == 7
+    assert rig.client.get(f"/api/meetings/{meeting_id}").json()["meeting"]["audio_bytes"] == 7
+
+
 def test_wav_audio_of_older_meetings_served(rig: Rig) -> None:
     meeting_id = rig.record()
     folder = rig.recorder.store.track_path(meeting_id, "mic").parent

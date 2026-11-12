@@ -155,7 +155,7 @@ Feature: Record, transcribe and read local meetings
   Scenario: List meetings newest first with status
     Given meetings recorded at 09:00 (transcribed) and 14:30 (transcribing)
     When I list meetings
-    Then I see the 14:30 meeting first, then the 09:00 meeting, each with title, start time, duration and status
+    Then I see the 14:30 meeting first, then the 09:00 meeting, each with title, start time, duration, audio size and status
 
   Scenario: A corrupt meeting folder does not break listing
     Given one meeting folder has an unreadable meeting.json

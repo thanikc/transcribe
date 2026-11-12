@@ -149,3 +149,18 @@ def test_load_transcript_not_ready(store):
 def test_load_transcript_unknown(store):
     with pytest.raises(MeetingNotFound):
         store.load_transcript("nope")
+
+
+def test_audio_bytes_sums_existing_tracks(store):
+    meeting = make_meeting(mode="mic+system")
+    store.create(meeting)
+    folder = store.data_dir / meeting.id
+    (folder / "mic.wav").write_bytes(b"RIFF1234")
+    (folder / "system.mp3").write_bytes(b"ID3")
+    assert store.audio_bytes(meeting) == 11
+
+
+def test_audio_bytes_zero_without_audio_files(store):
+    meeting = make_meeting()
+    store.create(meeting)
+    assert store.audio_bytes(meeting) == 0
