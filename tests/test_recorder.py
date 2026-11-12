@@ -670,3 +670,12 @@ def test_rename_while_transcribing_is_kept_when_done(rig: Rig) -> None:
 def test_rename_unknown_meeting(rig: Rig) -> None:
     with pytest.raises(MeetingNotFound):
         rig.recorder.rename("nope", "x")
+
+
+def test_notes_survive_transcribing_again(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record())
+    rig.recorder.save_notes(meeting.id, "Action: send the budget")
+    rig.transcribed(rig.recorder.transcribe(meeting.id))
+    assert rig.store.load_notes(meeting.id) == "Action: send the budget"
+    with pytest.raises(MeetingNotFound):
+        rig.recorder.save_notes("nope", "x")

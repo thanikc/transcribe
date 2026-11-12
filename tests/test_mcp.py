@@ -121,3 +121,15 @@ def test_rename_meeting(rig: Rig) -> None:
     assert reply == '"2026-11-11-1430-weekly-sync" is now called "Budget review".'
     assert "Budget review" in rig.call("list_meetings")
     assert rig.call("rename_meeting", meeting_id="nope", title="x") == 'no meeting "nope" exists'
+
+
+def test_save_meeting_notes_shows_in_transcript(rig: Rig) -> None:
+    rig.call("start_recording", title="Weekly sync", mode="mic")
+    rig.call("stop_recording")
+    reply = rig.call("save_meeting_notes", meeting_id="2026-11-11-1430-weekly-sync", notes="Summary: budget OK\n- Somchai: send figures")
+    assert reply == 'Saved notes for "2026-11-11-1430-weekly-sync".'
+    transcript = rig.call("get_transcript", meeting_id="2026-11-11-1430-weekly-sync")
+    assert "(detected: en)\n\nNotes:\nSummary: budget OK\n- Somchai: send figures\n\nTranscript:\n[00:00]" in transcript
+    assert rig.call("save_meeting_notes", meeting_id="2026-11-11-1430-weekly-sync", notes="") == 'Removed the notes of "2026-11-11-1430-weekly-sync".'
+    assert "Notes:" not in rig.call("get_transcript", meeting_id="2026-11-11-1430-weekly-sync")
+    assert rig.call("save_meeting_notes", meeting_id="nope", notes="x") == 'no meeting "nope" exists'

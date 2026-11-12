@@ -176,3 +176,10 @@ def test_rename(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out.strip() == '"2026-11-11-1430-weekly" is now called "Budget review"'
     assert recorder.store.get("2026-11-11-1430-weekly").title == "Budget review"
     assert cli.main(["rename", "nope", "x"]) == 1
+
+
+def test_show_includes_notes_even_before_the_transcript() -> None:
+    meeting = {"id": "m", "title": "M", "status": "transcribing", "progress": None}
+    assert transcript_text({"meeting": meeting, "transcript": None, "notes": "Agenda: budget"}) == (
+        'the transcript of "m" is not ready yet (status: transcribing)\n\nNotes:\nAgenda: budget'
+    )

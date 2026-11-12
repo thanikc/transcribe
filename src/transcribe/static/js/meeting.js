@@ -122,6 +122,10 @@ export function renderMeeting() {
   }
   view = tail;
 
+  if (state.detail.notes) {
+    view.append(el("section", { class: "notes", "aria-label": "Notes" }, el("h4", { text: "Notes" }), el("div", { text: state.detail.notes })));
+  }
+
   if (m.status === "recording") {
     view.append(el("p", { class: "muted", text: "Recording in progress. The transcript appears after you stop." }));
   } else if (m.status === "transcribing") {

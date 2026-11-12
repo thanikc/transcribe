@@ -101,11 +101,13 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
     def detail(meeting_id: str) -> dict:
         meeting = recorder.store.get(meeting_id)
+        notes = recorder.store.load_notes(meeting_id)
         if meeting.status != Status.TRANSCRIBED:
-            return {"meeting": _meeting_json(meeting), "segments": None, "transcript": None}
+            return {"meeting": _meeting_json(meeting), "notes": notes, "segments": None, "transcript": None}
         segments = recorder.store.load_transcript(meeting_id)
         return {
             "meeting": _meeting_json(meeting),
+            "notes": notes,
             "segments": [asdict(s) for s in segments],
             "transcript": render_transcript(segments, meeting.speaker_names),
         }
@@ -187,6 +189,16 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
         return JSONResponse(await run_in_threadpool(work))
 
+    async def notes(request: Request) -> Response:
+        data = await _body(request, required=("notes",))
+        meeting_id = request.path_params["id"]
+
+        def work() -> dict:
+            recorder.save_notes(meeting_id, data["notes"])
+            return detail(meeting_id)
+
+        return JSONResponse(await run_in_threadpool(work))
+
     def search(request: Request) -> Response:
         query = request.query_params.get("q", "").strip()
         if not query:
@@ -240,6 +252,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         Route("/api/meetings/{id}/transcribe", transcribe, methods=["POST"]),
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),
         Route("/api/meetings/{id}/title", title, methods=["POST"]),
+        Route("/api/meetings/{id}/notes", notes, methods=["POST"]),
         Route("/api/models", models),
         Route("/api/search", search),
         Route("/api/version", version),

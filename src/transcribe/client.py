@@ -65,6 +65,9 @@ class ServiceClient:
     def rename(self, meeting_id: str, title: str) -> dict:
         return self._post(f"/api/meetings/{quote(meeting_id, safe='')}/title", {"title": title})
 
+    def save_notes(self, meeting_id: str, notes: str) -> dict:
+        return self._post(f"/api/meetings/{quote(meeting_id, safe='')}/notes", {"notes": notes})
+
     def search(self, query: str) -> list[dict]:
         return self._call("GET", "/api/search", params={"q": query})["hits"]
 
@@ -92,12 +95,14 @@ def meeting_line(m: dict) -> str:
 
 
 def transcript_text(detail: dict) -> str:
-    """Header plus the rendered transcript, or the not-ready message."""
+    """Header, the meeting's notes if any, and the rendered transcript, or the not-ready message."""
     m = detail["meeting"]
+    notes = detail.get("notes")
+    notes_block = f"\n\nNotes:\n{notes.strip()}" if notes else ""
     if detail["transcript"] is None:
         progress = m.get("progress")
         doing = f"; {progress['step']}, {_step(progress)}" if progress else ""
-        return f'the transcript of "{m["id"]}" is not ready yet (status: {m["status"]}{doing})'
+        return f'the transcript of "{m["id"]}" is not ready yet (status: {m["status"]}{doing})' + notes_block
     language = m["language"]
     if language == "auto" and m["detected_languages"]:
         language = "auto (detected: " + ", ".join(sorted(set(m["detected_languages"].values()))) + ")"
@@ -107,7 +112,8 @@ def transcript_text(detail: dict) -> str:
         f"Language: {language}",
     ]
     header += [f"Warning: {w}" for w in m["warnings"]]
-    return "\n".join(header) + "\n\n" + detail["transcript"]
+    body = f"{notes_block}\n\nTranscript:\n" if notes else "\n\n"
+    return "\n".join(header) + body + detail["transcript"]
 
 
 def hit_line(hit: dict) -> str:

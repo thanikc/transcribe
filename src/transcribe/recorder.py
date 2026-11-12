@@ -298,6 +298,10 @@ class Recorder:
             self.store.save(meeting)
             return meeting
 
+    def save_notes(self, meeting_id: str, notes: str) -> None:
+        with self._lock:  # not while the meeting is being deleted
+            self.store.save_notes(meeting_id, notes)
+
     def delete(self, meeting_id: str) -> None:
         # Locked so a recording or transcription can't start on it mid-delete.
         with self._lock:

@@ -117,6 +117,22 @@ class MeetingStore:
             total += size or 0
         return total
 
+    def save_notes(self, meeting_id: str, notes: str) -> None:
+        """Replace the meeting's notes.md; blank notes remove it."""
+        path = self._folder(meeting_id) / "notes.md"
+        if notes.strip():
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(notes, encoding="utf-8")
+            os.replace(tmp, path)
+        else:
+            path.unlink(missing_ok=True)
+
+    def load_notes(self, meeting_id: str) -> str | None:
+        try:
+            return (self._folder(meeting_id) / "notes.md").read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)
         self._write_json(folder / "transcript.json", [asdict(s) for s in segments])

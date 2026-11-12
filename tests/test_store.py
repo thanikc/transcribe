@@ -233,3 +233,23 @@ def test_audio_bytes_ignores_a_folder_named_like_a_track(store):
     store.create(meeting)
     (store.data_dir / meeting.id / "mic.mp3").mkdir()
     assert store.audio_bytes(meeting) == 0
+
+
+def test_notes_round_trip_replace_and_remove(store):
+    store.create(make_meeting())
+    assert store.load_notes("2026-11-11-1430-standup") is None
+    store.save_notes("2026-11-11-1430-standup", "## สรุป\n- Budget approved\n")
+    store.save_notes("2026-11-11-1430-standup", "## สรุป\n- Budget approved, ship Friday\n")
+    path = store.data_dir / "2026-11-11-1430-standup" / "notes.md"
+    assert path.read_text(encoding="utf-8") == "## สรุป\n- Budget approved, ship Friday\n"
+    assert store.load_notes("2026-11-11-1430-standup") == "## สรุป\n- Budget approved, ship Friday\n"
+    store.save_notes("2026-11-11-1430-standup", "  \n")
+    assert not path.exists() and store.load_notes("2026-11-11-1430-standup") is None
+    store.save_notes("2026-11-11-1430-standup", "")  # nothing to remove: fine
+
+
+def test_notes_of_unknown_meeting(store):
+    with pytest.raises(MeetingNotFound):
+        store.save_notes("nope", "x")
+    with pytest.raises(MeetingNotFound):
+        store.load_notes("../x")

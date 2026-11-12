@@ -91,6 +91,18 @@ def build_server(client_factory: Callable[[], ServiceClient]) -> MCPServer:
         return forward(rename)
 
     @server.tool()
+    def save_meeting_notes(meeting_id: str, notes: str) -> str:
+        """Save notes with a meeting, such as a summary, decisions and action items you wrote from its
+        transcript, so they are kept with the meeting and shown on the recorder page and by get_transcript.
+        Replaces any notes it had, so include what should stay. Empty notes remove them."""
+
+        def save(c: ServiceClient) -> str:
+            c.save_notes(meeting_id, notes)
+            return f'Saved notes for "{meeting_id}".' if notes.strip() else f'Removed the notes of "{meeting_id}".'
+
+        return forward(save)
+
+    @server.tool()
     def delete_meeting(meeting_id: str) -> str:
         """Permanently delete a meeting: its audio, transcript and metadata. This cannot be undone,
         so only call it when the user explicitly asks to delete that meeting. A meeting that is

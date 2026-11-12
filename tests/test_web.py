@@ -520,3 +520,12 @@ def test_rename_meeting(rig: Rig) -> None:
     assert rig.client.get("/api/meetings").json()["meetings"][0]["title"] == "Budget review"
     assert rig.client.post("/api/meetings/nope/title", json={"title": "x"}).status_code == 404
     assert rig.client.post(f"/api/meetings/{meeting_id}/title", json={}).status_code == 400
+
+
+def test_meeting_notes(rig: Rig) -> None:
+    meeting_id = rig.record()
+    assert rig.client.get(f"/api/meetings/{meeting_id}").json()["notes"] is None
+    response = rig.client.post(f"/api/meetings/{meeting_id}/notes", json={"notes": "- ส่งงบ\n"})
+    assert response.status_code == 200 and response.json()["notes"] == "- ส่งงบ\n"
+    assert rig.client.get(f"/api/meetings/{meeting_id}").json()["notes"] == "- ส่งงบ\n"
+    assert rig.client.post("/api/meetings/nope/notes", json={"notes": "x"}).status_code == 404
