@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -58,5 +58,25 @@ describe("transcript as speaker turns", () => {
     const turns = document.querySelectorAll("ol.transcript > li");
     expect(turns[0]).toHaveAttribute("hidden");
     expect(turns[1]).not.toHaveAttribute("hidden");
+  });
+
+  it("highlights and follows the playing sentence, but not right after the reader scrolls", async () => {
+    await open();
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const mic = document.getElementById("audio-mic") as HTMLAudioElement;
+    mic.currentTime = 3;
+    fireEvent.timeUpdate(mic);
+    const line = screen.getByText("Shall we start?");
+    expect(line).toHaveClass("playing");
+    expect(scrolled.mock.contexts.at(-1)).toBe(line);
+    const calls = scrolled.mock.calls.length;
+    fireEvent.wheel(document.body);
+    mic.currentTime = 5;
+    fireEvent.timeUpdate(mic);
+    expect(screen.getByText("Yes, please.")).toHaveClass("playing");
+    expect(scrolled.mock.calls.length).toBe(calls);
+    // @ts-expect-error jsdom has none
+    delete Element.prototype.scrollIntoView;
   });
 });

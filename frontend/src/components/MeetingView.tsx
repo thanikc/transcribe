@@ -8,10 +8,11 @@ import {
   groupTurns,
   MODE_LABEL,
   nearestSegment,
+  playingLine,
   speakerPalette,
   TRACK_LABEL,
 } from "../utils";
-import { AudioBar } from "./AudioBar";
+import { AudioBar, type AudioBarHandle } from "./AudioBar";
 import { InlineEdit, PencilIcon } from "./InlineEdit";
 import { MeetingActions } from "./MeetingActions";
 import { ProgressBox } from "./ProgressBox";
@@ -51,10 +52,8 @@ export function MeetingView({
   const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null);
   const [collapsedFor, setCollapsedFor] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [playingPosition, setPlayingPosition] = useState<{
-    track: string;
-    time: number;
-  } | null>(null);
+  const [playTime, setPlayTime] = useState<number | null>(null);
+  const audioRef = useRef<AudioBarHandle>(null);
   const turns = useMemo(
     () =>
       detail?.segments
@@ -76,7 +75,7 @@ export function MeetingView({
 
   useEffect(() => {
     setActiveSpeaker(null);
-    setPlayingPosition(null);
+    setPlayTime(null);
     setEditingTitle(false);
     setFocusAt(null);
     sectionRef.current?.scrollTo?.({ top: 0 });
@@ -123,31 +122,10 @@ export function MeetingView({
     onDetailUpdated(updated);
   };
 
-  const handlePlayFrom = (track: string, start: number) => {
-    const player = document.getElementById(
-      `audio-${track}`,
-    ) as HTMLAudioElement | null;
-    if (!player) return;
-    for (const other of document.querySelectorAll<HTMLAudioElement>(
-      "#tracks audio",
-    )) {
-      if (other !== player) other.pause();
-    }
-    if (player.readyState === 0) {
-      player.addEventListener(
-        "loadedmetadata",
-        () => {
-          player.currentTime = start;
-        },
-        { once: true },
-      );
-    } else {
-      player.currentTime = start;
-    }
-    player.play().catch(() => {
-      /* browser refused playback */
-    });
-  };
+  const playingIndex = useMemo(
+    () => playingLine(detail?.segments || [], playTime),
+    [detail?.segments, playTime],
+  );
 
   const renderContent = () => {
     if (!currentId) {
@@ -318,8 +296,8 @@ export function MeetingView({
                   turns={visibleTurns}
                   activeSpeaker={activeSpeaker}
                   focusAt={focusAt}
-                  playingPosition={playingPosition}
-                  onPlayFrom={handlePlayFrom}
+                  playingIndex={playingIndex}
+                  onPlayFrom={(start) => audioRef.current?.playFrom(start)}
                   onRenameSpeaker={handleRenameSpeaker}
                   colourOf={colourOf}
                 />
@@ -347,9 +325,11 @@ export function MeetingView({
         {m.status !== "recording" && (
           <AudioBar
             key={`${m.id}|${(m.tracks || []).join(",")}`}
+            ref={audioRef}
             meetingId={m.id}
             tracks={m.tracks || []}
-            onTimeUpdate={(track, time) => setPlayingPosition({ track, time })}
+            duration={m.duration}
+            onTimeUpdate={setPlayTime}
           />
         )}
       </>

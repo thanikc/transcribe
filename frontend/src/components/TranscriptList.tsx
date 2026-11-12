@@ -3,6 +3,9 @@ import type { Meeting, TranscriptSegment } from "../types";
 import { mmss, type Turn } from "../utils";
 import { InlineEdit, PencilIcon } from "./InlineEdit";
 
+const FOLLOW_PAUSE_MS = 5000;
+const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"];
+
 export function trackOf(m: Meeting, s: TranscriptSegment): string {
   if (m.mode === "mic+system") return s.speaker === "You" ? "mic" : "system";
   return (m.tracks || ["mic"])[0];
@@ -14,8 +17,9 @@ interface TranscriptListProps {
   activeSpeaker: string | null;
   /** `index` is a line's place in the whole transcript. */
   focusAt: { index: number; nonce: number } | null;
-  playingPosition: { track: string; time: number } | null;
-  onPlayFrom: (track: string, start: number) => void;
+  /** The line being played, as a place in the whole transcript. */
+  playingIndex: number | null;
+  onPlayFrom: (start: number) => void;
   /** Throws when the rename is refused. An empty name resets it. */
   onRenameSpeaker: (rawSpeaker: string, name: string) => Promise<void>;
   colourOf: (speaker: string) => string;
@@ -26,7 +30,7 @@ export function TranscriptList({
   turns,
   activeSpeaker,
   focusAt,
-  playingPosition,
+  playingIndex,
   onPlayFrom,
   onRenameSpeaker,
   colourOf,
@@ -34,6 +38,33 @@ export function TranscriptList({
   const [editingAt, setEditingAt] = useState<number | null>(null);
   const [flashAt, setFlashAt] = useState<number | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
+  const userScrolledAtRef = useRef(0);
+
+  // follow the playing line, except for a while after the reader scrolls
+  useEffect(() => {
+    const scrolled = () => {
+      userScrolledAtRef.current = Date.now();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (SCROLL_KEYS.includes(e.key)) scrolled();
+    };
+    document.addEventListener("wheel", scrolled, { passive: true });
+    document.addEventListener("touchmove", scrolled, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("wheel", scrolled);
+      document.removeEventListener("touchmove", scrolled);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (playingIndex === null) return;
+    if (Date.now() - userScrolledAtRef.current < FOLLOW_PAUSE_MS) return;
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-index="${playingIndex}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [playingIndex]);
 
   useEffect(() => {
     if (!focusAt) return;
@@ -97,18 +128,14 @@ export function TranscriptList({
                 type="button"
                 className="ts"
                 title="Play from here"
-                onClick={() => onPlayFrom(turn.track, turn.start)}
+                onClick={() => onPlayFrom(turn.start)}
               >
                 {`[${mmss(turn.start)}]`}
               </button>
             </div>
             <p className="turn-text">
               {turn.lines.map(({ segment: s, index }, i) => {
-                const playing =
-                  playingPosition !== null &&
-                  playingPosition.track === turn.track &&
-                  playingPosition.time >= s.start &&
-                  playingPosition.time < s.end;
+                const playing = playingIndex === index;
                 const classes = [
                   "seg",
                   playing ? "playing" : "",
@@ -129,7 +156,7 @@ export function TranscriptList({
                         // a click that ends a text selection is for copying, not playing
                         const sel = window.getSelection();
                         if (sel && !sel.isCollapsed) return;
-                        onPlayFrom(turn.track, s.start);
+                        onPlayFrom(s.start);
                       }}
                     >
                       {s.text}

@@ -249,7 +249,7 @@ Feature: Record, transcribe and read local meetings
     Given a transcribed "mic+system" meeting
     When I open it on the web page
     Then I see its transcript with timestamps and speakers
-    And an audio player for the mic track and one for the system track
+    And one audio player for both the mic and the system track
 
   Scenario: The transcript reads as speaker turns
     Given a transcribed meeting where "Speaker 1" says two lines in a row, then "Speaker 2" answers
@@ -281,7 +281,7 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Audio keeps playing while the meeting is transcribing
     Given a meeting with status "transcribing"
-    And I am playing its mic track on the web page
+    And I am playing its audio on the web page
     When the page refreshes the transcription progress
     Then the audio keeps playing without restarting or flickering
 

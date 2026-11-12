@@ -185,3 +185,18 @@ export function groupTurns(
   });
   return turns;
 }
+
+/** The line being played: its span holds `time`; of overlapping lines, the one that started last. */
+export function playingLine(
+  segments: TranscriptSegment[],
+  time: number | null,
+): number | null {
+  if (time === null) return null;
+  let found: number | null = null;
+  segments.forEach((s, i) => {
+    if (time >= s.start && time < s.end) {
+      if (found === null || s.start >= segments[found].start) found = i;
+    }
+  });
+  return found;
+}
