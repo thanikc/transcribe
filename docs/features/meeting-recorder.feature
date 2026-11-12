@@ -196,6 +196,13 @@ Feature: Record, transcribe and read local meetings
     When I list meetings
     Then I see the 14:30 meeting first, then the 09:00 meeting, each with title, start time, duration, audio size and status
 
+  Scenario: The web page's meetings list is grouped by date and quiet about finished meetings
+    Given meetings from today, yesterday, Monday of this week and last month
+    When I open the web page
+    Then they are listed under "Today", "Yesterday", "Earlier this week" and the month's name, newest first
+    And today's and yesterday's rows show the start time, older ones the short date and time, then the duration
+    And a transcribed meeting shows no badge, while a recording, transcribing or failed one does
+
   Scenario: A corrupt meeting folder does not break listing
     Given one meeting folder has an unreadable meeting.json
     When I list meetings

@@ -200,3 +200,44 @@ export function playingLine(
   });
   return found;
 }
+
+/** Meetings (newest first) under Today, Yesterday, Earlier this week, then by month; local dates. */
+export function groupByDay<T extends { started_at: string }>(
+  meetings: T[],
+  now: Date,
+): { label: string; meetings: T[] }[] {
+  const day = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = day(now);
+  const yesterday = day(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1),
+  );
+  // weeks start on Monday
+  const weekStart = day(
+    new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - ((now.getDay() + 6) % 7),
+    ),
+  );
+  const groups: { label: string; meetings: T[] }[] = [];
+  for (const m of meetings) {
+    const started = new Date(m.started_at);
+    const d = day(started);
+    const label =
+      d >= today
+        ? "Today"
+        : d === yesterday
+          ? "Yesterday"
+          : d >= weekStart
+            ? "Earlier this week"
+            : started.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              });
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.meetings.push(m);
+    else groups.push({ label, meetings: [m] });
+  }
+  return groups;
+}

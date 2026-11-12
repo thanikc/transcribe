@@ -34,7 +34,7 @@ describe("meeting actions in the header", () => {
     "a %s meeting has an Actions menu in its header",
     async (status) => {
       openMeetingWithStatus(status);
-      await screen.findByRole("heading", { level: 3 });
+      await screen.findByRole("button", { name: "Weekly sync" });
       const summary = screen.getByText("Actions");
       expect(summary.closest(".meeting-header")).not.toBeNull();
       expect(document.querySelector(".secondary-drawer")).toBeNull();

@@ -1,5 +1,5 @@
 import type { Meeting } from "../types";
-import { fileSize, mmss } from "../utils";
+import { groupByDay, mmss } from "../utils";
 import { StatusBadge } from "./StatusBadge";
 
 interface MeetingsListProps {
@@ -8,38 +8,58 @@ interface MeetingsListProps {
   onSelectMeeting: (meetingId: string) => void;
 }
 
+const timeOf = (d: Date) =>
+  d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+const dateOf = (d: Date) =>
+  d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
 export function MeetingsList({
   meetings,
   currentId,
   onSelectMeeting,
 }: MeetingsListProps) {
+  const groups = groupByDay(meetings, new Date());
   return (
     <section className="sidebar-list-section" aria-labelledby="list-h">
-      <h2 id="list-h">Past meetings</h2>
-      <ul className="list" id="meetings">
-        {meetings.map((m) => {
-          const when = new Date(m.started_at).toLocaleString();
+      <h2 id="list-h">Meetings</h2>
+      <div id="meetings">
+        {groups.map((g) => {
+          const recent = g.label === "Today" || g.label === "Yesterday";
           return (
-            <li key={m.id}>
-              <button
-                type="button"
-                className="item"
-                data-id={m.id}
-                aria-current={m.id === currentId ? "true" : undefined}
-                onClick={() => onSelectMeeting(m.id)}
-              >
-                <div className="t">
-                  <span>{m.title || m.id}</span>
-                  <StatusBadge status={m.status} progress={m.progress} />
-                </div>
-                <div className="m">
-                  {`${when} · ${mmss(m.duration)} · ${fileSize(m.audio_bytes)}`}
-                </div>
-              </button>
-            </li>
+            <section key={g.label} className="list-group" aria-label={g.label}>
+              <h3>{g.label}</h3>
+              <ul className="list">
+                {g.meetings.map((m) => {
+                  const started = new Date(m.started_at);
+                  const when = recent
+                    ? timeOf(started)
+                    : `${dateOf(started)} ${timeOf(started)}`;
+                  return (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        className="item"
+                        data-id={m.id}
+                        aria-current={m.id === currentId ? "true" : undefined}
+                        onClick={() => onSelectMeeting(m.id)}
+                      >
+                        <div className="t">
+                          <span>{m.title || m.id}</span>
+                          {m.status !== "transcribed" && (
+                            <StatusBadge status={m.status} progress={m.progress} />
+                          )}
+                        </div>
+                        <div className="m">{`${when} · ${mmss(m.duration)}`}</div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           );
         })}
-      </ul>
+      </div>
       <p
         className="muted"
         id="no-meetings"
