@@ -51,6 +51,21 @@ def test_index_page(rig: Rig) -> None:
     assert "<title>" in response.text
 
 
+def test_index_loads_its_scripts_as_modules(rig: Rig) -> None:
+    page = rig.client.get("/").text
+    assert '<script type="module" src="/static/js/main.js"></script>' in page
+    script = rig.client.get("/static/js/main.js")
+    assert script.status_code == 200
+    assert script.headers["content-type"] == "text/javascript; charset=utf-8"
+    assert "import " in script.text
+
+
+def test_scripts_route_serves_only_script_files(rig: Rig) -> None:
+    assert rig.client.get("/static/js/missing.js").status_code == 404
+    assert rig.client.get("/static/js/..%2Findex.html").status_code == 404
+    assert rig.client.get("/static/js/%2e%2e%2f%2e%2e%2fweb.py").status_code == 404
+
+
 def test_start_stop_round_trip(rig: Rig) -> None:
     started = rig.client.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic", "language": "th"})
     assert started.status_code == 201

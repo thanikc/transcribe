@@ -17,7 +17,7 @@ src/transcribe/
   capture.py     # soundcard adapter (AudioCapture)
   stt.py         # faster-whisper adapter (SpeechToText)
   web.py         # Starlette app: JSON API + origin guard + serves static/index.html
-  static/index.html
+  static/index.html, static/js/*.js   # ES modules: state, api/util, recording, list, meeting, audio, search
   client.py      # httpx client for the service API (used by the MCP shim and `record`)
   mcp_server.py  # FastMCP stdio tools → client
   cli.py         # argparse: serve/mcp/record/list/show/search
