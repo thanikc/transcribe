@@ -17,6 +17,7 @@ from pathlib import Path
 from transcribe import cli
 from transcribe.client import ServiceClient, httpx
 from transcribe.desktop import claude_config_files, connect_claude, icon_image, port_owner, tray_state
+from transcribe.updates import UpdateError, UpdateService
 
 log = logging.getLogger(__name__)
 
@@ -86,13 +87,13 @@ class WinregLoginStartup:
                 pass
 
 
-def _start_service(recorder, port: int):
+def _start_service(recorder, port: int, updates: UpdateService):
     """The recorder service on a background thread. Returns the server, or None if it couldn't listen."""
     import uvicorn
 
     from transcribe.web import create_app
 
-    config = uvicorn.Config(create_app(recorder), host="127.0.0.1", port=port, log_level="warning", log_config=None)
+    config = uvicorn.Config(create_app(recorder, updates=updates), host="127.0.0.1", port=port, log_level="warning", log_config=None)
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, name="recorder-service", daemon=True)
     thread.start()
@@ -124,7 +125,8 @@ def main() -> None:
         recorder, data_dir = cli.build_recorder()
         for meeting_id in recorder.recover_interrupted():
             log.info('marked interrupted recording "%s" as failed (its audio can still be transcribed)', meeting_id)
-        server = _start_service(recorder, port)
+        updates = UpdateService()
+        server = _start_service(recorder, port, updates)
     except Exception:
         log.exception("the recorder service failed to start")
         _message_box(f"Transcribe couldn't start. Details are in\n{log_file}")
@@ -132,13 +134,14 @@ def main() -> None:
     if server is None:
         _message_box(port_busy)
         return
-    log.info("recorder service on %s, data in %s", url, data_dir)
+    log.info("recorder service on %s, data in %s, version %s", url, data_dir, updates.installed)
 
     import pystray
 
     startup = WinregLoginStartup(f'"{_scripts_dir() / "transcribe-tray.exe"}" --background')
     images = {False: icon_image(recording=False), True: icon_image(recording=True)}
     stopping = threading.Event()
+    stop_checking: list[threading.Event] = []
 
     def open_page(icon=None, item=None) -> None:
         webbrowser.open(url)
@@ -168,6 +171,8 @@ def main() -> None:
 
     def quit_app(icon, item) -> None:
         stopping.set()
+        for stop in stop_checking:
+            stop.set()
         if recorder.status()["recording"]:
             try:
                 recorder.stop()  # closes the audio files; the unfinished transcription is marked interrupted next start
@@ -176,17 +181,41 @@ def main() -> None:
         server.should_exit = True
         icon.stop()
 
+    def install_update(icon, item) -> None:
+        def work() -> None:  # the download takes a while; the menu must not hang meanwhile
+            blocker = recorder.update_blocker()
+            if blocker:
+                icon.notify(blocker[0].upper() + blocker[1:] + ".", "Transcribe")
+                return
+            release = updates.update()
+            if release is not None:
+                icon.notify(f"Downloading Transcribe {release.version}…", "Transcribe")
+            try:
+                updates.install()
+            except UpdateError as error:
+                icon.notify(f"Couldn't install the update: {error}", "Transcribe")
+
+        threading.Thread(target=work, name="update-install", daemon=True).start()
+
     def follow_recorder(icon) -> None:
         shown = None
         while not stopping.is_set():
             state = tray_state(recorder.status())
             if state != shown:
                 icon.icon, icon.title = images[state[0]], state[1]
+                if shown is None or state[0] != shown[0]:
+                    icon.update_menu()  # "Install update" is disabled while recording
                 shown = state
             stopping.wait(1)
 
+    def announce(icon, release) -> None:
+        icon.update_menu()  # shows the "Install update" item
+        icon.notify(f"Transcribe {release.version} is available. Install it from this icon's menu or the recorder page.", "Transcribe")
+
     def setup(icon) -> None:
         icon.visible = True
+        updates.on_update = lambda release: announce(icon, release)
+        stop_checking.append(updates.start_checking())
         threading.Thread(target=follow_recorder, args=(icon,), name="tray-state", daemon=True).start()
         if not background:
             open_page()
@@ -199,6 +228,13 @@ def main() -> None:
         pystray.MenuItem("Open log", lambda icon, item: os.startfile(log_file)),
         pystray.MenuItem("Open meetings folder", open_meetings),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem(f"Version {updates.installed}", lambda icon, item: None, enabled=False),
+        pystray.MenuItem(
+            lambda item: f"Install update {updates.update().version}" if updates.update() else "Install update",
+            install_update,
+            enabled=lambda item: not recorder.status()["recording"],
+            visible=lambda item: updates.update() is not None,
+        ),
         pystray.MenuItem("Quit", quit_app),
     )
     pystray.Icon("transcribe", images[False], "Transcribe: idle", menu).run(setup=setup)

@@ -1,6 +1,6 @@
 ; Inno Setup 6 script for Transcribe. Built by .github/workflows/windows-installer.yml:
 ;   iscc /DAppVersion=1.2.3 installer\transcribe.iss
-; Expects build\uv.exe, build\transcribe.ico and build\python\ (a standalone CPython 3.12) next to the repo root
+; Expects build\uv.exe, build\transcribe.ico, build\VERSION and build\python\ (a standalone CPython 3.12) next to the repo root
 ; (the workflow makes them).
 
 #ifndef AppVersion
@@ -55,6 +55,8 @@ Source: "..\uv.lock"; DestDir: "{app}\app"
 Source: "..\.python-version"; DestDir: "{app}\app"
 Source: "..\README.md"; DestDir: "{app}\app"
 Source: "..\src\*"; DestDir: "{app}\app\src"; Excludes: "__pycache__,*.pyc"; Flags: recursesubdirs
+; The installed version, packaged with the app (transcribe/VERSION); the workflow writes it.
+Source: "..\build\VERSION"; DestDir: "{app}\app\src\transcribe"
 
 [Icons]
 Name: "{autoprograms}\Transcribe"; Filename: "{app}\venv\Scripts\transcribe-tray.exe"; IconFilename: "{app}\transcribe.ico"

@@ -61,6 +61,8 @@ jobs:
           $version = if ($version) { $version -replace '^v', '' } else { "0.0.0-dev.$env:GITHUB_RUN_NUMBER" }
           $global:LASTEXITCODE = 0
           Write-Host "Installer version: $version"
+          # The app reads it as its installed version (transcribe/VERSION) to show it and to look for updates.
+          Set-Content build\VERSION $version -NoNewline -Encoding ascii
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
           & $iscc "/DAppVersion=$version" installer\transcribe.iss

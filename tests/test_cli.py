@@ -41,6 +41,11 @@ def test_help_runs() -> None:
     assert result.returncode == 0 and "serve" in result.stdout
 
 
+def test_version_of_a_git_checkout_is_dev() -> None:
+    result = subprocess.run([sys.executable, "-m", "transcribe.cli", "--version"], capture_output=True, text=True)
+    assert result.returncode == 0 and result.stdout.strip() == "transcribe dev"
+
+
 def test_list_show_search(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
     recorder.start("Weekly", "mic")
     recorder.stop()

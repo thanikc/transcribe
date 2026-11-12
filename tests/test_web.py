@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from fakes import FakeCapture, FakeDiarizer, FakeSpeechToText
 from transcribe.domain import Segment, SpeakerTurn
 from transcribe.recorder import Recorder
 from transcribe.store import MeetingStore
+from transcribe.updates import UpdateService
 from transcribe.web import create_app
 
 SEGMENTS = [Segment(0, 1, "สวัสดีครับ เริ่มประชุมกันเลย"), Segment(3, 4, "Budget looks fine")]
@@ -419,3 +421,91 @@ def test_requests_are_answered_while_a_recording_is_still_starting(tmp_path: Pat
         assert asyncio.run(scenario()) == [200, 200, 200, 200, True, 201, 200]
     finally:
         rescue.cancel()
+
+
+# --- version and updates ---------------------------------------------------------
+
+
+class UpdateRig(Rig):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        setup = b"setup"
+        self.launched: list[Path] = []
+        self.downloads = 0
+
+        def download(url: str, path: Path) -> None:
+            self.downloads += 1
+            path.write_bytes(setup)
+
+        self.updates = UpdateService(
+            installed="0.3.1",
+            fetch_latest=lambda: {
+                "tag_name": "0.4.0",
+                "assets": [{
+                    "name": "Transcribe-Setup-0.4.0.exe",
+                    "browser_download_url": "https://github.com/thanikc/transcribe/releases/download/0.4.0/Transcribe-Setup-0.4.0.exe",
+                    "size": len(setup),
+                    "digest": "sha256:" + hashlib.sha256(setup).hexdigest(),
+                }],
+            },
+            download=download,
+            launch=self.launched.append,
+            download_dir=tmp_path / "update",
+            can_install=True,
+        )
+        self.client = TestClient(create_app(self.recorder, allowed_hosts=["testserver"], updates=self.updates))
+
+
+def test_version_without_an_update_service(rig: Rig) -> None:
+    body = rig.client.get("/api/version").json()
+    assert body["version"] == "dev" and body["update"] is None
+
+
+def test_version_offers_a_checked_update(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    assert rig.client.get("/api/version").json()["update"] is None  # not checked yet
+    rig.updates.check()
+    assert rig.client.get("/api/version").json() == {
+        "version": "0.3.1", "update": "0.4.0", "checked": True, "error": None, "can_install": True,
+    }
+
+
+def test_install_update_starts_the_setup(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    rig.updates.check()
+    response = rig.client.post("/api/update/install", json={})
+    assert response.status_code == 200 and response.json() == {"launched": "0.4.0"}
+    assert rig.launched == [tmp_path / "update" / "Transcribe-Setup-0.4.0.exe"]
+
+
+def test_install_update_refused_while_recording(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    rig.updates.check()
+    rig.client.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic"})
+    response = rig.client.post("/api/update/install", json={})
+    assert response.status_code == 409
+    assert "stop the recording" in response.json()["error"]
+    assert rig.downloads == 0
+
+
+def test_install_update_refused_while_transcribing(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    rig.recorder.run_in_background = lambda job: None
+    rig.record()
+    rig.updates.check()
+    response = rig.client.post("/api/update/install", json={})
+    assert response.status_code == 409
+    assert "transcription" in response.json()["error"]
+    assert rig.downloads == 0
+
+
+def test_install_update_without_an_update_is_409(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    assert rig.client.post("/api/update/install", json={}).status_code == 409
+
+
+def test_install_update_from_a_foreign_origin_is_refused(tmp_path: Path) -> None:
+    rig = UpdateRig(tmp_path)
+    rig.updates.check()
+    response = rig.client.post("/api/update/install", json={}, headers={"Origin": "https://evil.example"})
+    assert response.status_code == 403 and rig.downloads == 0
