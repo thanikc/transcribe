@@ -37,7 +37,7 @@ def build_server(client_factory: Callable[[], ServiceClient]) -> MCPServer:
         language: "auto" (detect), "th" (Thai) or "en" (English).
         """
         return forward(
-            lambda c: f'Recording started: "{(m := c.start(title, mode, language))["title"]}" (id {m["id"]}).'
+            lambda c: f'Recording started: "{(m := c.start(title, mode, language))["title"] or m["id"]}" (id {m["id"]}).'
         )
 
     @server.tool()
