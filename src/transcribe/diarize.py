@@ -6,7 +6,6 @@ import shutil
 import tarfile
 import threading
 import urllib.request
-import wave
 from pathlib import Path
 from typing import Callable
 
@@ -24,34 +23,23 @@ def _download(url: str, dest: Path) -> None:
     part.replace(dest)  # replace, not rename: Windows refuses to rename over a leftover file
 
 
-_CHUNK_FRAMES = 1 << 20
-
-
-def _read_mono(wav: Path, rate: int):
-    """The WAV as float32 mono at `rate`. Reads in chunks: only the result is held whole in memory."""
+def _read_mono(audio: Path, rate: int):
+    """The track (MP3, or WAV from older meetings) as float32 mono at `rate`, decoded piece by piece."""
+    import av
     import numpy as np
 
-    with wave.open(str(wav), "rb") as w:
-        src_rate, channels, total = w.getframerate(), w.getnchannels(), w.getnframes()
-        step = src_rate / rate
-        out = np.empty(int(total / step), dtype="float32")
-        written = 0
-        offset = 0  # source index of chunk[0]
-        carry = None  # last sample of the previous chunk, to interpolate across the boundary
-        while written < len(out):
-            raw = w.readframes(_CHUNK_FRAMES)
-            if not raw:
-                break
-            chunk = np.frombuffer(raw, dtype="<i2").reshape(-1, channels).mean(axis=1, dtype="float32") / 32768
-            if carry is not None:
-                chunk, offset = np.concatenate(([carry], chunk)), offset - 1
-            # Output samples whose source position falls inside this chunk.
-            last = offset + len(chunk) - 1
-            stop = min(len(out), int(last / step) + 1)
-            positions = np.arange(written, stop) * step - offset
-            out[written:stop] = np.interp(positions, np.arange(len(chunk)), chunk)
-            written, offset, carry = stop, last + 1, chunk[-1]
-    return out[:written]
+    # Planar, channels kept: averaged here, since FFmpeg's downmix adds them at -3 dB and can clip.
+    resampler = av.AudioResampler(format="fltp", rate=rate)
+    pieces = []
+
+    def keep(frames) -> None:
+        pieces.extend(f.to_ndarray().mean(axis=0, dtype="float32") for f in frames)
+
+    with av.open(str(audio)) as container:
+        for frame in container.decode(audio=0):
+            keep(resampler.resample(frame))
+    keep(resampler.resample(None))
+    return np.concatenate(pieces) if pieces else np.zeros(0, dtype="float32")
 
 
 class SherpaDiarizer:

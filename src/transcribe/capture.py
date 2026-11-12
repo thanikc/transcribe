@@ -1,9 +1,8 @@
-"""Audio capture adapter: soundcard mic and loopback streamed to 16-bit mono WAV files."""
+"""Audio capture adapter: soundcard mic and loopback streamed to mono MP3 files."""
 
 from __future__ import annotations
 
 import threading
-import wave
 from pathlib import Path
 
 from transcribe.recorder import CaptureError
@@ -11,6 +10,51 @@ from transcribe.recorder import CaptureError
 # What Whisper and the speaker models work at; WASAPI resamples to it (soundcard asks for AUTOCONVERTPCM).
 SAMPLE_RATE = 16000
 BLOCK_FRAMES = SAMPLE_RATE // 2
+BIT_RATE = 64000
+
+
+class Mp3Writer:
+    """Encodes float32 mono blocks to an MP3 file as they arrive. Each MP3 frame stands alone, so a killed
+    process leaves a playable file that lacks only the last half second or so."""
+
+    def __init__(self, path: Path, rate: int = SAMPLE_RATE) -> None:
+        import av
+
+        self._rate = rate
+        # Our own unbuffered file: given a path, FFmpeg keeps the output in memory until close, so a killed
+        # process would leave an empty file. This way at most one 4 KB buffer (half a second) is lost.
+        self._file = open(path, "wb", buffering=0)
+        self._container = av.open(self._file, "w", format="mp3", buffer_size=4096)
+        self._stream = self._container.add_stream("libmp3lame", rate=rate, layout="mono")
+        self._stream.bit_rate = BIT_RATE
+
+    def write(self, mono) -> None:
+        import av
+        import numpy as np
+
+        samples = np.clip(np.asarray(mono, dtype="float32"), -1, 1).reshape(1, -1)
+        frame = av.AudioFrame.from_ndarray(samples, format="fltp", layout="mono")
+        frame.sample_rate = self._rate
+        self._mux(frame)
+
+    def close(self) -> None:
+        try:
+            self._mux(None)  # flush the encoder
+        finally:
+            try:
+                self._container.close()
+            finally:
+                self._file.close()
+
+    def _mux(self, frame) -> None:
+        for packet in self._stream.encode(frame):
+            self._container.mux(packet)
+
+    def __enter__(self) -> Mp3Writer:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
 
 class _Session:
@@ -36,18 +80,12 @@ def _open_device(track: str):
 
 def _record(track: str, path: Path, ready: threading.Event, stop: threading.Event, errors: list[Exception]) -> None:
     try:
-        import numpy as np
-
         # Opened in the recording thread so WASAPI handles stay on the thread that uses them.
-        with _open_device(track).recorder(samplerate=SAMPLE_RATE) as rec, wave.open(str(path), "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(SAMPLE_RATE)
+        with _open_device(track).recorder(samplerate=SAMPLE_RATE) as rec, Mp3Writer(path) as mp3:
             ready.set()
             while not stop.is_set():
                 block = rec.record(numframes=BLOCK_FRAMES)
-                mono = block.mean(axis=1) if block.ndim > 1 else block
-                wav.writeframes((np.clip(mono, -1, 1) * 32767).astype("<i2").tobytes())
+                mp3.write(block.mean(axis=1) if block.ndim > 1 else block)
     except Exception as e:  # reported by start() if the device never opened, else by stop()
         errors.append(CaptureError(f"could not open the {track} device: {e}") if not ready.is_set() else e)
         ready.set()

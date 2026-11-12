@@ -39,12 +39,12 @@ class CaptureError(DomainError):
 
 class CaptureSession(Protocol):
     def stop(self) -> None:
-        """Stop all tracks and close their WAV files."""
+        """Stop all tracks and close their audio files."""
 
 
 class AudioCapture(Protocol):
     def start(self, track_paths: dict[str, Path]) -> CaptureSession:
-        """Start streaming each track to its WAV file. Raises CaptureError if a device can't open."""
+        """Start streaming each track to its audio file. Raises CaptureError if a device can't open."""
 
 
 # Called from the worker thread with the share of the work done so far, 0.0 to 1.0.
@@ -55,12 +55,12 @@ class SpeechToText(Protocol):
     def transcribe(
         self, wav: Path, language: str | None, on_progress: ProgressCallback
     ) -> tuple[list[Segment], str]:
-        """Track WAV + language (None = detect) -> (segments without speakers, detected language)."""
+        """Track audio + language (None = detect) -> (segments without speakers, detected language)."""
 
 
 class SpeakerDiarizer(Protocol):
     def diarize(self, wav: Path, on_progress: ProgressCallback) -> list[SpeakerTurn]:
-        """Track WAV -> speaker turns with raw labels."""
+        """Track audio -> speaker turns with raw labels."""
 
 
 def _in_thread(job: Callable[[], None]) -> None:

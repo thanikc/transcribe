@@ -13,7 +13,7 @@ recordings and shows them.
 | **Meeting** | One recording session plus everything derived from it. Identified by a **meeting id** (`2026-11-11-1430-weekly-sync`: start time + ASCII title slug; a title with no ASCII letters, e.g. Thai, gives just `2026-11-11-1430`). The full title is kept in metadata. |
 | **Capture mode** | `mic` (in-person: microphone only) or `mic+system` (online call: microphone + Windows loopback of what the speakers play). |
 | **Language** | The spoken language of a meeting, chosen per recording: `th`, `en`, or `auto` (Whisper detects it once per track). One language per meeting. The **detected language** of each track is recorded. |
-| **Track** | The audio from one source: the `mic` track and, in `mic+system` mode, the `system` track. Each track is its own WAV file. |
+| **Track** | The audio from one source: the `mic` track and, in `mic+system` mode, the `system` track. Each track is its own MP3 file (16 kHz mono, 64 kbps); meetings recorded before MP3 keep their WAV files, which still play and transcribe. |
 | **Speaker** | Who a segment is attributed to. In `mic+system` mode the mic track is always `You`. The system track (and the mic track in `mic` mode) is **diarized** into `Speaker 1`, `Speaker 2`, …, numbered by order of first appearance. If diarization fails, the track falls back to `Others` (system) or no label (`mic` mode). |
 | **Diarization** | Splitting a track into **speaker turns** (start, end, speaker) by voice, done locally with sherpa-onnx. Each segment gets the speaker whose turns overlap it the most. |
 | **Speaker name** | A display name you give a speaker label for one meeting (`Speaker 2` → `Somchai`). It changes how the transcript is rendered, not the stored segments. |
@@ -25,7 +25,7 @@ recordings and shows them.
 ### Aggregate: Meeting
 
 Stored as a folder `<data dir>/<meeting id>/` with `meeting.json` (metadata + status),
-`mic.wav`, optional `system.wav`, and `transcript.json` once transcribed.
+`mic.mp3`, optional `system.mp3`, and `transcript.json` once transcribed.
 
 Invariants:
 - A meeting id is unique. If the same id is generated twice in one minute, a numeric suffix is added.
@@ -42,9 +42,9 @@ Invariants:
 
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
-| `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its WAV file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
-| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track WAV + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message |
-| `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track WAV → speaker turns | Model download or runtime error → fall back to track-level labels and record a warning |
+| `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
+| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message |
+| `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
 
@@ -65,7 +65,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - **Recorder service** (`transcribe serve`): Starlette + uvicorn, which are already dependencies of `mcp`. JSON API:
   `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language}`,
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
-  `GET /api/meetings/{id}/audio/{track}` (WAV), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`.
+  `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`.
   `stop` returns at once. Transcription runs in a background thread, and the status is shown in the meeting listings.
   While it runs, each meeting's JSON carries `progress`: `{step, step_number, steps, fraction, elapsed}` (null otherwise).
   The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null

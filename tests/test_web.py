@@ -137,9 +137,19 @@ def test_audio_missing_file_404(rig: Rig) -> None:
 
 def test_audio_served(rig: Rig) -> None:
     meeting_id = rig.record()
-    rig.recorder.store.track_path(meeting_id, "mic").write_bytes(b"RIFFdata")
+    rig.recorder.store.track_path(meeting_id, "mic").write_bytes(b"ID3data")
     response = rig.client.get(f"/api/meetings/{meeting_id}/audio/mic")
     assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mpeg"
+    assert response.content == b"ID3data"
+
+
+def test_wav_audio_of_older_meetings_served(rig: Rig) -> None:
+    meeting_id = rig.record()
+    folder = rig.recorder.store.track_path(meeting_id, "mic").parent
+    (folder / "mic.mp3").unlink()
+    (folder / "mic.wav").write_bytes(b"RIFFdata")
+    response = rig.client.get(f"/api/meetings/{meeting_id}/audio/mic")
     assert response.headers["content-type"] == "audio/wav"
     assert response.content == b"RIFFdata"
 

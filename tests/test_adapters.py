@@ -175,27 +175,65 @@ def _write_wav(path, rate: int, channels: int, samples) -> None:
         w.writeframes(np.asarray(samples, dtype="<i2").tobytes())
 
 
-@pytest.mark.parametrize("chunk", [7, 1 << 20])
-def test_read_mono_resamples_48k_to_16k_across_chunks(tmp_path, monkeypatch, chunk):
+def _tone(seconds: float, rate: int = 16000, hz: float = 440.0, level: float = 0.3):
     import numpy as np
 
-    from transcribe import diarize
-
-    monkeypatch.setattr(diarize, "_CHUNK_FRAMES", chunk)
-    ramp = np.arange(4800) * 4  # linear, so interpolation is exact
-    _write_wav(tmp_path / "a.wav", 48000, 1, ramp)
-    mono = diarize._read_mono(tmp_path / "a.wav", 16000)
-    assert mono.dtype == np.float32 and len(mono) == 1600
-    np.testing.assert_allclose(mono, ramp[::3] / 32768, atol=1e-6)
+    t = np.arange(int(seconds * rate)) / rate
+    return (level * np.sin(2 * np.pi * hz * t)).astype("float32")
 
 
-def test_read_mono_mixes_channels_and_keeps_matching_rate(tmp_path, monkeypatch):
+def test_mp3_writer_encodes_blocks_at_64_kbps_and_reads_back_at_16k(tmp_path):
     import numpy as np
 
-    from transcribe import diarize
+    from transcribe.capture import Mp3Writer
+    from transcribe.diarize import _read_mono
 
-    monkeypatch.setattr(diarize, "_CHUNK_FRAMES", 5)
-    stereo = np.column_stack([np.full(100, 1000), np.full(100, 3000)]).ravel()
-    _write_wav(tmp_path / "s.wav", 16000, 2, stereo)
-    mono = diarize._read_mono(tmp_path / "s.wav", 16000)
-    np.testing.assert_allclose(mono, np.full(100, 2000 / 32768), atol=1e-6)
+    path = tmp_path / "mic.mp3"
+    tone = _tone(10)
+    with Mp3Writer(path) as mp3:
+        for i in range(0, len(tone), 8000):  # half-second blocks, as capture writes them
+            mp3.write(tone[i : i + 8000])
+    assert path.read_bytes()[:3] == b"ID3" or path.read_bytes()[0] == 0xFF
+    assert 70_000 < path.stat().st_size < 90_000  # 10 s at 64 kbps = 80 kB
+    back = _read_mono(path, 16000)
+    assert back.dtype == np.float32
+    assert abs(len(back) - len(tone)) < 1600
+    assert np.sqrt(np.mean(back**2)) == pytest.approx(0.3 / np.sqrt(2), rel=0.05)
+
+
+def test_mp3_writer_clips_out_of_range_samples(tmp_path):
+    import numpy as np
+
+    from transcribe.capture import Mp3Writer
+    from transcribe.diarize import _read_mono
+
+    with Mp3Writer(tmp_path / "loud.mp3") as mp3:
+        mp3.write(_tone(1, level=5.0))
+    assert np.abs(_read_mono(tmp_path / "loud.mp3", 16000)).max() < 1.2
+
+
+def test_read_mono_still_reads_wav_tracks_of_older_meetings(tmp_path):
+    import numpy as np
+
+    from transcribe.diarize import _read_mono
+
+    stereo = np.column_stack([np.full(48000, 1000), np.full(48000, 3000)]).ravel()
+    _write_wav(tmp_path / "s.wav", 48000, 2, stereo)
+    mono = _read_mono(tmp_path / "s.wav", 16000)
+    assert abs(len(mono) - 16000) < 64
+    np.testing.assert_allclose(mono[100:-100], 2000 / 32768, atol=1e-4)
+
+
+def test_mp3_of_a_killed_recording_keeps_almost_all_its_audio(tmp_path):
+    from transcribe.diarize import _read_mono
+
+    path = tmp_path / "killed.mp3"
+    code = (
+        "import os, numpy as np\n"
+        "from transcribe.capture import Mp3Writer\n"
+        f"m = Mp3Writer({str(path)!r})\n"
+        "for _ in range(20): m.write((np.sin(np.arange(8000) / 3) * 0.3).astype('float32'))\n"
+        "os._exit(0)\n"  # no close(): what a crash or a killed service leaves
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+    assert len(_read_mono(path, 16000)) / 16000 > 9.0  # of 10 s

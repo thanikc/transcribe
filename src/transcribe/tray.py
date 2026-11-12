@@ -170,7 +170,7 @@ def main() -> None:
         stopping.set()
         if recorder.status()["recording"]:
             try:
-                recorder.stop()  # closes the WAV files; the unfinished transcription is marked interrupted next start
+                recorder.stop()  # closes the audio files; the unfinished transcription is marked interrupted next start
             except Exception:
                 log.exception("stopping the recording on quit failed")
         server.should_exit = True

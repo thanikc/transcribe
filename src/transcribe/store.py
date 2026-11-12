@@ -69,7 +69,11 @@ class MeetingStore:
         meeting = self.get(meeting_id)
         if track not in meeting.tracks:
             raise UnknownTrack(meeting_id, track)
-        return self.data_dir / meeting_id / f"{track}.wav"
+        folder = self.data_dir / meeting_id
+        # Meetings recorded before the switch to MP3 have WAV tracks.
+        legacy = folder / f"{track}.wav"
+        mp3 = folder / f"{track}.mp3"
+        return legacy if legacy.exists() and not mp3.exists() else mp3
 
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)
