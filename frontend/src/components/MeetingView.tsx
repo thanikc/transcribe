@@ -20,6 +20,7 @@ const COLLAPSED_LINES = 8;
 
 interface MeetingViewProps {
   currentId: string | null;
+  hasMeetings: boolean;
   detail: MeetingDetail | null;
   detailAt: number;
   error: string;
@@ -32,6 +33,7 @@ interface MeetingViewProps {
 
 export function MeetingView({
   currentId,
+  hasMeetings,
   detail,
   detailAt,
   error,
@@ -130,7 +132,11 @@ export function MeetingView({
   const renderContent = () => {
     if (!currentId) {
       return (
-        <p className="empty-state">Select a meeting to see its transcript.</p>
+        <p className="empty-state">
+          {hasMeetings
+            ? "Select a meeting to see its transcript."
+            : "No meetings yet. Press Start recording, or use Import audio to transcribe a file you already have."}
+        </p>
       );
     }
     if (error) {
@@ -141,7 +147,7 @@ export function MeetingView({
       );
     }
     if (!detail) {
-      return null;
+      return <p className="loading muted">Loading…</p>;
     }
 
     const { meeting: m, segments, notes, transcript } = detail;

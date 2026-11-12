@@ -10,7 +10,7 @@ test.describe("Meetings Recorder E2E", () => {
     await expect(page.locator("#status")).toHaveText("Not recording");
     await expect(page.locator("#no-meetings")).toBeVisible();
     await expect(page.locator("#view .empty-state")).toHaveText(
-      "Select a meeting to see its transcript.",
+      /^No meetings yet\./,
     );
 
     const settingsSummary = page.locator("#settings-summary");
@@ -87,7 +87,7 @@ test.describe("Meetings Recorder E2E", () => {
     await page.locator("button.danger", { hasText: "Delete meeting" }).click();
     await expect(page.locator("#no-meetings")).toBeVisible();
     await expect(page.locator("#view .empty-state")).toHaveText(
-      "Select a meeting to see its transcript.",
+      /^No meetings yet\./,
     );
   });
 });

@@ -240,6 +240,15 @@ Feature: Record, transcribe and read local meetings
     Then I see its transcript with timestamps and speakers
     And an audio player for the mic track and one for the system track
 
+  Scenario: First run says how to make a meeting
+    Given there are no meetings yet
+    When I open the web page
+    Then it says "No meetings yet. Press Start recording, or use Import audio to transcribe a file you already have."
+
+  Scenario: A slow meeting load says it is loading
+    When I open a meeting that takes a moment to load
+    Then the meeting view says "Loading…" until it arrives
+
   Scenario: A speaker keeps their colour
     Given a transcribed meeting with "Speaker 1" and "Speaker 2"
     When I open it, open another meeting, and open it again

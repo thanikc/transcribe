@@ -350,6 +350,7 @@ export function App() {
 
         <MeetingView
           currentId={currentId}
+          hasMeetings={meetings.length > 0}
           detail={detail}
           detailAt={detailAt}
           error={viewError}
