@@ -58,6 +58,38 @@ function colourOf(label) {
   return `var(--sp${palette[label]})`;
 }
 
+const COPY_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+
+const CHEVRON_UP = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>';
+const CHEVRON_DOWN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const COLLAPSED_LINES = 8;
+
+// Whether a long transcript is shown in full; kept across re-renders, reset when another meeting opens.
+let expandedFor = null;
+
+// Small utility bar: copy the whole transcript (timestamps and speaker names), and, for a long one, collapse/expand it.
+function utilBar(position, text, collapsible, collapsed) {
+  const note = el("span", { class: "copy-note muted", role: "status" });
+  const copy = el("button", { type: "button", class: "icon", title: "Copy transcript", "aria-label": "Copy transcript" });
+  copy.innerHTML = COPY_ICON;
+  let timer;
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(text); note.textContent = "Copied to clipboard"; }
+    catch (e) { note.textContent = "Could not copy"; }
+    clearTimeout(timer); timer = setTimeout(() => { note.textContent = ""; }, 2000);
+  });
+  const bar = el("div", { class: "util-bar " + position }, copy);
+  if (collapsible) {
+    const label = collapsed ? "Expand transcript" : "Collapse transcript";
+    const tog = el("button", { type: "button", class: "icon", title: label, "aria-label": label, "aria-expanded": String(!collapsed) });
+    tog.innerHTML = collapsed ? CHEVRON_DOWN : CHEVRON_UP;
+    tog.addEventListener("click", () => { expandedFor = collapsed ? state.currentId : null; renderMeeting(); });
+    bar.append(tog);
+  }
+  bar.append(note);
+  return bar;
+}
+
 export function renderMeeting() {
   const { meeting: m, segments } = state.detail;
   // Build into two fragments around the audio players, so a refresh never detaches a player mid-playback.
@@ -95,8 +127,12 @@ export function renderMeeting() {
     view.append(renderProgress(m.progress));
   } else if (m.status === "transcribed" && segments) {
     if (!segments.length) view.append(el("p", { class: "muted", text: "No speech was found." }));
+    const collapsible = segments.length > COLLAPSED_LINES;
+    const collapsed = collapsible && expandedFor !== id;
+    const text = state.detail.transcript;
+    if (segments.length) view.append(utilBar("top", text, collapsible, collapsed));
     const ol = el("ol", { class: "transcript", "aria-label": "Transcript" });
-    for (const s of segments) {
+    for (const s of collapsed ? segments.slice(0, COLLAPSED_LINES) : segments) {
       const li = el("li", null, el("span", { class: "ts", text: `[${mmss(s.start)}]` }));
       if (s.speaker) {
         const shown = (m.speaker_names || {})[s.speaker] || s.speaker;
@@ -108,6 +144,7 @@ export function renderMeeting() {
       ol.append(li);
     }
     view.append(ol);
+    if (segments.length) view.append(utilBar("bottom", text, collapsible, collapsed));
   }
 
   if (m.status !== "recording") {
