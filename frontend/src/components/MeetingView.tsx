@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import type { MeetingDetail, SpeechModelInfo } from "../types";
 import {
@@ -52,9 +52,12 @@ export function MeetingView({
     [detail?.segments],
   );
 
+  const sectionRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     setActiveSpeaker(null);
     setPlayingPosition(null);
+    sectionRef.current?.scrollTo?.({ top: 0 });
   }, [currentId]);
 
   const colourOf = (label: string): string => `var(--sp${palette[label] ?? 0})`;
@@ -302,7 +305,7 @@ export function MeetingView({
   };
 
   return (
-    <section aria-labelledby="view-h" id="view-section">
+    <section aria-labelledby="view-h" id="view-section" ref={sectionRef}>
       <h2 id="view-h" className="sr-only">
         Meeting
       </h2>

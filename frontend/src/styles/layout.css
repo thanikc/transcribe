@@ -2,13 +2,11 @@
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 /* 1. Persistent Top Recording & Capture Dock */
 .top-dock {
-  position: sticky;
-  top: 0;
   z-index: 30;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -160,6 +158,8 @@ details.popover[open] > summary {
 /* 2. Main Swiss 2-Column Workspace */
 main {
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
@@ -169,8 +169,17 @@ main {
 }
 
 @media (max-width: 820px) {
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+  }
+  .top-dock {
+    position: sticky;
+    top: 0;
+  }
   main {
     grid-template-columns: 1fr;
+    overflow: visible;
   }
   .popover-body {
     left: 0;
