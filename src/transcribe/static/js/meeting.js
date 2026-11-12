@@ -144,7 +144,7 @@ export function renderMeeting() {
       ol.append(li);
     }
     view.append(ol);
-    if (segments.length) view.append(utilBar("bottom", text, collapsible, collapsed));
+    if (collapsible) view.append(utilBar("bottom", text, collapsible, collapsed));
   }
 
   if (m.status !== "recording") {
