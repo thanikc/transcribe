@@ -314,3 +314,27 @@ def test_whisper_knows_which_models_are_already_downloaded(monkeypatch, tmp_path
     assert not stt.has_model("large-v3-turbo")
     assert not stt.has_model("no-such-model")
     assert stt.has_model(str(tmp_path))  # a local model dir
+
+
+@pytest.mark.parametrize("cores, threads", [(1, 1), (2, 2), (16, 4), (None, 1)])
+def test_diarizer_runs_its_models_on_up_to_four_threads(monkeypatch, tmp_path, cores, threads) -> None:
+    from types import ModuleType, SimpleNamespace
+
+    from transcribe import diarize
+
+    so = ModuleType("sherpa_onnx")
+    for name in (
+        "OfflineSpeakerDiarizationConfig",
+        "OfflineSpeakerSegmentationModelConfig",
+        "OfflineSpeakerSegmentationPyannoteModelConfig",
+        "SpeakerEmbeddingExtractorConfig",
+        "FastClusteringConfig",
+    ):
+        setattr(so, name, lambda *args, **kwargs: SimpleNamespace(**kwargs))
+    so.OfflineSpeakerDiarization = lambda config: config
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", so)
+    monkeypatch.setattr(diarize.os, "cpu_count", lambda: cores)
+    diarizer = diarize.SherpaDiarizer(tmp_path)
+    monkeypatch.setattr(diarizer, "ensure_models", lambda: (tmp_path / "seg.onnx", tmp_path / "emb.onnx"))
+    config = diarizer._load()
+    assert (config.segmentation.num_threads, config.embedding.num_threads) == (threads, threads)

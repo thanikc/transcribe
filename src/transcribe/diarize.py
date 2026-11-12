@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tarfile
 import threading
@@ -15,6 +16,9 @@ _BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 SEGMENTATION_URL = f"{_BASE}/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
 EMBEDDING_FILE = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
 EMBEDDING_URL = f"{_BASE}/speaker-recongition-models/{EMBEDDING_FILE}"
+# sherpa-onnx runs each model on one thread unless told otherwise. Four is what Whisper uses,
+# so speaker detection asks no more of the computer than transcribing did.
+MAX_THREADS = 4
 
 
 def _download(url: str, dest: Path) -> None:
@@ -75,11 +79,13 @@ class SherpaDiarizer:
                 import sherpa_onnx as so
 
                 segmentation, embedding = self.ensure_models()
+                threads = min(MAX_THREADS, os.cpu_count() or 1)
                 config = so.OfflineSpeakerDiarizationConfig(
                     segmentation=so.OfflineSpeakerSegmentationModelConfig(
-                        pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(segmentation))
+                        pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(segmentation)),
+                        num_threads=threads,
                     ),
-                    embedding=so.SpeakerEmbeddingExtractorConfig(model=str(embedding)),
+                    embedding=so.SpeakerEmbeddingExtractorConfig(model=str(embedding), num_threads=threads),
                     clustering=so.FastClusteringConfig(num_clusters=-1, threshold=0.5),
                 )
                 self._engine = so.OfflineSpeakerDiarization(config)
