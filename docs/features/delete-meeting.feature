@@ -31,8 +31,9 @@ Feature: Delete a meeting
   Scenario: Delete from the web page asks first
     Given I am viewing a transcribed meeting
     When I choose "Delete meeting" from the meeting's Actions menu
-    Then the page asks me to confirm, naming the meeting
-    And only after I confirm is it deleted and the page goes back to the list
+    Then the page asks in place, without a browser dialog, "Delete "<title>"? Audio and transcript are removed for good."
+    And Cancel has the focus and keeps the meeting
+    And only after I press Delete is it deleted and the page goes back to the list
 
   Scenario: Delete from the CLI
     When I run "transcribe delete 2026-11-11-1430-weekly-sync"

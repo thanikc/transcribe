@@ -69,11 +69,12 @@ export function TopDock({
       }
     };
     const onClick = (e: MouseEvent) => {
-      const target = e.target as Node | null;
+      // the path, not contains(): the clicked button may already be re-rendered away
+      const path = e.composedPath();
       for (const d of document.querySelectorAll<HTMLDetailsElement>(
         "details.popover[open]",
       )) {
-        if (target && !d.contains(target)) {
+        if (!path.includes(d)) {
           d.open = false;
         }
       }

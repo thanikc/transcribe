@@ -77,9 +77,13 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Rename a speaker on the web page
     Given a transcribed meeting with "Speaker 2" in its transcript
-    When I click "Speaker 2" and enter "Somchai"
+    When I click "Speaker 2", type "Somchai" in the box that opens under it and press Enter
     Then every "Speaker 2" line now shows "Somchai"
     And get_transcript in Claude Desktop shows "Somchai"
+    When I click "Somchai" and press "Reset to Speaker 2"
+    Then every line shows "Speaker 2" again
+    When I click "Speaker 2", type a name and press Escape
+    Then nothing is renamed
 
   Scenario: Claude names a speaker from context
     When Claude calls rename_speaker for "Speaker 1" with name "Khun Nok"

@@ -2,9 +2,19 @@ Feature: Rename a meeting
 
   Scenario: Rename a meeting from the page
     Given I am viewing the meeting "2026-11-11-1430-weekly-sync"
-    When I click its title and enter "Budget review"
+    When I click its title, type "Budget review" in its place and press Enter
     Then the title shows "Budget review" in the view, the list and search hits
     And the meeting id stays "2026-11-11-1430-weekly-sync"
+
+  Scenario: Escape cancels renaming on the page
+    Given I am editing a meeting's title on the page
+    When I press Escape
+    Then the title is unchanged and nothing is saved
+
+  Scenario: A refused title stays open on the page
+    Given I am editing a meeting's title on the page
+    When the service refuses the new title
+    Then its reason is shown under the field and the field stays open
 
   Scenario: An empty title leaves it untitled
     When I rename a meeting to "   "

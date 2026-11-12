@@ -407,3 +407,69 @@ button.icon {
     right: 0;
   }
 }
+
+/* Inline rename: title and speaker labels */
+.pencil {
+  flex-shrink: 0;
+  margin-left: var(--sp-1);
+  vertical-align: -1px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.title-edit:hover .pencil,
+.title-edit:focus-visible .pencil,
+.spk:hover .pencil,
+.spk:focus-visible .pencil,
+.spk[aria-expanded="true"] .pencil {
+  opacity: 0.7;
+}
+@media (pointer: coarse) {
+  .pencil { opacity: 0.7; }
+}
+
+.title-form {
+  flex: 1 1 320px;
+  max-width: 560px;
+}
+.title-form input[type=text] {
+  height: 36px;
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.spk-wrap {
+  position: relative;
+  min-width: 0;
+}
+.spk-wrap .spk {
+  max-width: 100%;
+}
+.spk-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--sp-1));
+  z-index: 40;
+  width: 260px;
+  padding: var(--sp-3);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+.inline-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.confirm-delete p {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.confirm-delete .row {
+  align-items: center;
+}
+.meeting-header .meeting-title-row {
+  flex: 1 1 auto;
+}

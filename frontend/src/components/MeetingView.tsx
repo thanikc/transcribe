@@ -10,6 +10,7 @@ import {
   TRACK_LABEL,
 } from "../utils";
 import { AudioBar } from "./AudioBar";
+import { InlineEdit, PencilIcon } from "./InlineEdit";
 import { MeetingActions } from "./MeetingActions";
 import { ProgressBox } from "./ProgressBox";
 import { StatusBadge } from "./StatusBadge";
@@ -45,6 +46,7 @@ export function MeetingView({
 }: MeetingViewProps) {
   const [activeSpeaker, setActiveSpeaker] = useState<string | null>(null);
   const [collapsedFor, setCollapsedFor] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
   const [playingPosition, setPlayingPosition] = useState<{
     track: string;
     time: number;
@@ -60,48 +62,31 @@ export function MeetingView({
   useEffect(() => {
     setActiveSpeaker(null);
     setPlayingPosition(null);
+    setEditingTitle(false);
     sectionRef.current?.scrollTo?.({ top: 0 });
   }, [currentId]);
 
   const colourOf = (label: string): string => `var(--sp${palette[label] ?? 0})`;
 
-  const handleRenameMeeting = async (currentTitle: string) => {
+  const handleRenameMeeting = async (nextTitle: string) => {
     if (!currentId) return;
-    const nextTitle = window.prompt(
-      "Meeting title (leave empty for none):",
-      currentTitle,
+    const updated = await api<MeetingDetail>(
+      "POST",
+      `/api/meetings/${encodeURIComponent(currentId)}/title`,
+      { title: nextTitle },
     );
-    if (nextTitle === null) return;
-    try {
-      const updated = await api<MeetingDetail>(
-        "POST",
-        `/api/meetings/${encodeURIComponent(currentId)}/title`,
-        { title: nextTitle },
-      );
-      onDetailUpdated(updated);
-      onMeetingsChanged();
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
-    }
+    onDetailUpdated(updated);
+    onMeetingsChanged();
   };
 
-  const handleRenameSpeaker = async (raw: string, currentShown: string) => {
+  const handleRenameSpeaker = async (raw: string, nextName: string) => {
     if (!currentId) return;
-    const nextName = window.prompt(
-      `Name for ${raw} (leave empty to reset):`,
-      currentShown === raw ? "" : currentShown,
+    const updated = await api<MeetingDetail>(
+      "POST",
+      `/api/meetings/${encodeURIComponent(currentId)}/speakers`,
+      { speaker: raw, name: nextName },
     );
-    if (nextName === null) return;
-    try {
-      const updated = await api<MeetingDetail>(
-        "POST",
-        `/api/meetings/${encodeURIComponent(currentId)}/speakers`,
-        { speaker: raw, name: nextName },
-      );
-      onDetailUpdated(updated);
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
-    }
+    onDetailUpdated(updated);
   };
 
   const handlePlayFrom = (track: string, start: number) => {
@@ -184,14 +169,27 @@ export function MeetingView({
       <>
         <div className="meeting-header">
           <h3 className="meeting-title-row">
-            <button
-              type="button"
-              className="title-edit"
-              title="Rename this meeting"
-              onClick={() => handleRenameMeeting(m.title)}
-            >
-              {m.title || m.id}
-            </button>
+            {editingTitle ? (
+              <InlineEdit
+                className="title-form"
+                label="Meeting title"
+                placeholder={m.id}
+                initial={m.title}
+                onLeave="save"
+                onSave={handleRenameMeeting}
+                onClose={() => setEditingTitle(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                className="title-edit"
+                title="Rename this meeting"
+                onClick={() => setEditingTitle(true)}
+              >
+                {m.title || m.id}
+                <PencilIcon />
+              </button>
+            )}
             <StatusBadge status={m.status} />
           </h3>
           {m.status !== "recording" && (

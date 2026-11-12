@@ -57,19 +57,21 @@ test.describe("Meetings Recorder E2E", () => {
     await filterGroup.getByRole("button", { name: "All speakers" }).click();
     await expect(page.locator("ol.transcript li:not([hidden])")).toHaveCount(3);
 
-    // 5. Rename Speaker 1 -> Somchai
-    page.once("dialog", (dialog) => dialog.accept("Somchai"));
+    // 5. Rename Speaker 1 -> Somchai in the speaker's popover
     await page
       .locator("ol.transcript button.spk", { hasText: "Speaker 1" })
       .first()
       .click();
+    await page.getByRole("textbox", { name: "Name for Speaker 1" }).fill("Somchai");
+    await page.keyboard.press("Enter");
     await expect(
       page.locator("ol.transcript button.spk", { hasText: "Somchai" }).first(),
     ).toBeVisible();
 
-    // 6. Rename meeting title -> Q4 Budget Review
-    page.once("dialog", (dialog) => dialog.accept("Q4 Budget Review"));
+    // 6. Rename meeting title -> Q4 Budget Review in place
     await page.locator("button.title-edit").click();
+    await page.getByRole("textbox", { name: "Meeting title" }).fill("Q4 Budget Review");
+    await page.keyboard.press("Enter");
     await expect(page.locator("button.title-edit")).toHaveText("Q4 Budget Review");
     await expect(page.locator("#meetings")).toContainText("Q4 Budget Review");
 
@@ -83,8 +85,11 @@ test.describe("Meetings Recorder E2E", () => {
 
     // 8. Delete the meeting
     await page.locator("details.meeting-actions summary").click();
-    page.once("dialog", (dialog) => dialog.accept());
     await page.locator("button.danger", { hasText: "Delete meeting" }).click();
+    await expect(page.locator(".confirm-delete")).toContainText(
+      'Delete "Q4 Budget Review"?',
+    );
+    await page.locator(".confirm-delete button.danger").click();
     await expect(page.locator("#no-meetings")).toBeVisible();
     await expect(page.locator("#view .empty-state")).toHaveText(
       /^No meetings yet\./,

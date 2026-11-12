@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../api";
 import type { Meeting, SpeechModelInfo } from "../types";
 import { defaultModelName, formatModelOption } from "../utils";
@@ -27,12 +27,19 @@ export function MeetingActions({
   const [retranscribeError, setRetranscribeError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (confirming) cancelRef.current?.focus();
+  }, [confirming]);
 
   useEffect(() => {
     setLanguage(meeting.language || "auto");
     setModel(meeting.model || defaultModelName(models));
     setRetranscribeError("");
     setDeleteError("");
+    setConfirming(false);
   }, [meeting.id, meeting.language, meeting.model, models]);
 
   const handleRetranscribe = async () => {
@@ -56,13 +63,6 @@ export function MeetingActions({
   };
 
   const handleDelete = async () => {
-    if (
-      !window.confirm(
-        `Delete "${meeting.title || meeting.id}"? Its audio and transcript are removed for good.`,
-      )
-    ) {
-      return;
-    }
     setDeleting(true);
     setDeleteError("");
     try {
@@ -75,7 +75,13 @@ export function MeetingActions({
   };
 
   return (
-    <details ref={detailsRef} className="popover meeting-actions">
+    <details
+      ref={detailsRef}
+      className="popover meeting-actions"
+      onToggle={(e) => {
+        if (!e.currentTarget.open) setConfirming(false);
+      }}
+    >
       <summary title="Transcribe again or delete this meeting">Actions</summary>
       <div className="popover-body">
         <div className="again">
@@ -124,14 +130,39 @@ export function MeetingActions({
 
         {(meeting.status === "transcribed" || meeting.status === "failed") && (
           <div className="again">
-            <button
-              type="button"
-              className="danger"
-              disabled={deleting}
-              onClick={handleDelete}
-            >
-              Delete meeting
-            </button>
+            {confirming ? (
+              <div className="confirm-delete">
+                <p>
+                  {`Delete "${meeting.title || meeting.id}"? Audio and transcript are removed for good.`}
+                </p>
+                <div className="row">
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={deleting}
+                    onClick={handleDelete}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    ref={cancelRef}
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => setConfirming(true)}
+              >
+                Delete meeting
+              </button>
+            )}
             <div className="err" role="alert">
               {deleteError}
             </div>
