@@ -44,7 +44,7 @@ Invariants:
 |---|---|---|---|
 | `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
 | `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
-| `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns | Model download or runtime error → fall back to track-level labels and record a warning |
+| `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns, on up to 4 CPU threads | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
 
@@ -66,11 +66,13 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
   `GET /api/status` (idle or recording: meeting id, title, mode, elapsed seconds), `POST /api/recordings/start {title, mode, language, model?}`,
   `POST /api/recordings/stop`, `GET /api/meetings`, `GET /api/meetings/{id}` (metadata + transcript if ready),
   `GET /api/meetings/{id}/audio/{track}` (MP3, or WAV for older meetings), `POST /api/meetings/{id}/transcribe {language?, model?}`, `POST /api/meetings/{id}/speakers {speaker, name}` (rename; an empty name resets it), `DELETE /api/meetings/{id}` (409 while recording or transcribing), `GET /api/search?q=`, `GET /api/models` (the speech models to choose from: `{name, size, downloaded, default}`).
-  `stop` returns at once. Transcription runs in a background thread, and the status is shown in the meeting listings.
+  `stop` returns at once. Transcription runs on one background thread, one meeting at a time in the order asked for, and the status is shown in the meeting listings.
+  A meeting waiting its turn is `transcribing` with no `progress` yet.
+  Requests that read the disk or wait for the recorder run in a thread pool, so status polls are answered while a recording starts or a search runs.
   While it runs, each meeting's JSON carries `progress`: `{step, step_number, steps, fraction, elapsed}` (null otherwise).
   The steps are "Transcribing microphone", ["Transcribing system audio",] "Detecting speakers". `fraction` (0–1) is null
   until the step reports, e.g. while the model loads. Progress is kept in memory only.
-- **Web UI** (`GET /`): one static HTML page with vanilla JS, which polls `/api/status` every second.
+- **Web UI** (`GET /`): one static HTML page with vanilla JS, which polls `/api/status` every second while its tab is visible. A hidden tab asks nothing and refreshes when it is shown again.
   - A recording panel: title input, mode picker, language picker (Auto / ไทย / English), speech model picker (remembered in the browser; a model not yet on the computer says how much it downloads on first use), Start/Stop button, a red "● Recording 12:34" indicator with the elapsed time.
   - A meetings list: newest first, with status badges that update while transcribing.
   - A meeting view: transcript with timestamps and speakers (each speaker in its own colour; click a speaker label to rename it, applied to the whole transcript), an audio player per track (kept playing while progress refreshes) with a "Play through" output-device picker (the browser default follows the Windows default output; the choice is remembered in the browser; hidden where the browser can't switch outputs), the language (forced or detected), the speech model, and a "Transcribe again" button with a language picker and a speech model picker, for a failed meeting, one where auto-detection got the language wrong, or to try the other model. A "Delete meeting" button (transcribed or failed meetings only) asks for confirmation first.
@@ -101,6 +103,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - `transcribe serve` has to be running for start/stop to work, from the web, Claude or the CLI. Otherwise clients say "recorder service not running, start it with `transcribe serve`". Reading transcripts through MCP also goes through the service.
 - If the service stops during a recording, that meeting is left `recording`. On startup, the service marks such meetings `failed` ("interrupted"), and their audio can still be transcribed.
 - Transcription happens after the recording, not live.
+- Meetings are transcribed one at a time. One asked for while another runs waits, and the page says so.
 - `large-v3` on CPU takes roughly 1–2× the meeting length to transcribe. Status stays `transcribing` meanwhile, with step progress.
 - Without the installer or `download-models`, the first-run model download (~3 GB for `large-v3`) has no percentage: the step shows an animated bar and a timer.
 - Diarization is approximate: overlapping speech, similar voices and very short turns get mislabelled. A segment that spans a speaker change goes to whoever spoke most of it. The number of speakers is estimated, not asked for.

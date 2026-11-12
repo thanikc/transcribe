@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import queue
 import threading
 from dataclasses import replace
 from datetime import datetime
@@ -33,6 +35,8 @@ from transcribe.domain import (
     transition,
 )
 from transcribe.store import MeetingStore
+
+log = logging.getLogger(__name__)
 
 
 class CaptureError(DomainError):
@@ -81,8 +85,32 @@ class SpeakerDiarizer(Protocol):
         """Track audio -> speaker turns with raw labels."""
 
 
-def _in_thread(job: Callable[[], None]) -> None:
-    threading.Thread(target=job, daemon=True).start()
+class OneAtATime:
+    """Runs jobs on one background thread, in the order they were given.
+
+    Transcriptions share the CPU, and two with different speech models would hold both in memory,
+    so two at once are slower than one after the other and can run out of memory.
+    """
+
+    def __init__(self) -> None:
+        self._jobs: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def __call__(self, job: Callable[[], None]) -> None:
+        self._jobs.put(job)
+        with self._lock:
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._run, name="transcription", daemon=True)
+                self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            try:
+                job()
+            except Exception:  # a job that raises must not end the thread the later jobs need
+                log.exception("a background job failed")
 
 
 class Recorder:
@@ -93,7 +121,7 @@ class Recorder:
         stt: SpeechToText,
         diarizer: SpeakerDiarizer,
         clock: Callable[[], datetime] = datetime.now,
-        run_in_background: Callable[[Callable[[], None]], None] = _in_thread,
+        run_in_background: Callable[[Callable[[], None]], None] | None = None,
         default_model: str = "large-v3",
     ) -> None:
         self.store = store
@@ -101,7 +129,7 @@ class Recorder:
         self.stt = stt
         self.diarizer = diarizer
         self.clock = clock
-        self.run_in_background = run_in_background
+        self.run_in_background = run_in_background or OneAtATime()
         self.default_model = default_model
         self._lock = threading.Lock()
         self._active: tuple[Meeting, CaptureSession] | None = None

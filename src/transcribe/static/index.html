@@ -281,6 +281,7 @@ function renderList() {
   }
 }
 setInterval(() => {
+  if (document.hidden) return;
   if (state.meetings.some((m) => m.status === "recording" || m.status === "transcribing")) loadMeetings();
 }, 2000);
 
@@ -315,18 +316,19 @@ function applyDetail(d, token) {
   state.detail = d; state.detailAt = performance.now();
   renderMeeting();
   const s = d.meeting.status;
-  if (s === "transcribing" || s === "recording") {
-    state.viewTimer = setTimeout(async () => {
-      if (token !== state.viewToken) return;
-      try {
-        const nd = await api("GET", "/api/meetings/" + encodeURIComponent(d.meeting.id));
-        if (token !== state.viewToken) return;
-        applyDetail(nd, token);
-      } catch (e) { if (token === state.viewToken) applyDetail(d, token); }
-    }, 2000);
-  }
+  if (inProgress(d)) state.viewTimer = setTimeout(() => refreshDetail(d.meeting.id, token), 2000);
   const listed = state.meetings.find((m) => m.id === d.meeting.id);
   if (listed && listed.status === s) { listed.progress = d.meeting.progress; renderList(); } else loadMeetings();
+}
+const inProgress = (d) => !!d && (d.meeting.status === "transcribing" || d.meeting.status === "recording");
+async function refreshDetail(id, token) {
+  if (token !== state.viewToken || document.hidden) return;  // a hidden tab picks up again when it is shown
+  try {
+    const d = await api("GET", "/api/meetings/" + encodeURIComponent(id));
+    if (token === state.viewToken) applyDetail(d, token);
+  } catch (e) {
+    if (token === state.viewToken) state.viewTimer = setTimeout(() => refreshDetail(id, token), 2000);
+  }
 }
 
 const palette = {};
@@ -513,7 +515,8 @@ if (canPickOutput) navigator.mediaDevices.addEventListener("devicechange", () =>
 
 function renderProgress(p) {
   const box = el("div", { class: "progress" });
-  if (!p) { box.append(el("p", { role: "status", text: "Transcribing…" })); return box; }
+  // No step yet: another meeting is being transcribed, or this one is about to start.
+  if (!p) { box.append(el("p", { role: "status", text: "Waiting to start. Meetings are transcribed one at a time." })); return box; }
   const bar = el("progress", { max: "1", "aria-label": p.step });
   if (p.fraction != null) bar.value = p.fraction;  // no value: an indeterminate, animated bar
   box.append(
@@ -530,7 +533,7 @@ function stepTimeText() {
   // Before the first percentage the model is loading; its first use downloads it (1.6–3 GB).
   return p.fraction == null ? `${t} · preparing (the first use of a model downloads it, which can take several minutes)` : t;
 }
-setInterval(() => { const t = $("step-time"); if (t) t.textContent = stepTimeText(); }, 500);
+setInterval(() => { const t = $("step-time"); if (t && !document.hidden) t.textContent = stepTimeText(); }, 500);
 
 async function renameSpeaker(raw, current) {
   const name = prompt(`Name for ${raw} (leave empty to reset):`, current === raw ? "" : current);
@@ -559,8 +562,15 @@ $("search-form").addEventListener("submit", async (ev) => {
 });
 
 /* ---------- start ---------- */
-setInterval(pollStatus, 1000);
-setInterval(() => { if (state.recording) renderStatus(); }, 250);
+// A hidden tab asks the service nothing: during an hour-long call that is thousands of requests,
+// each list one reading every meeting from disk. Showing the tab again refreshes at once.
+setInterval(() => { if (!document.hidden) pollStatus(); }, 1000);
+setInterval(() => { if (state.recording && !document.hidden) renderStatus(); }, 250);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  pollStatus(); loadMeetings();
+  if (state.currentId && inProgress(state.detail)) showMeeting(state.currentId);
+});
 pollStatus(); loadMeetings(); loadModels(); routeFromHash();
 </script>
 </body>
