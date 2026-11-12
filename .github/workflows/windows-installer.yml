@@ -2,7 +2,7 @@ name: Windows installer
 
 on:
   push:
-    tags: ["v*"]  # builds and attaches to a release; path filters don't apply to tags
+    tags: ["v[0-9]*", "[0-9]*"]  # 1.2.3 or v1.2.3: builds and attaches to a release; path filters don't apply to tags
     branches: ["**"]  # builds an artifact when the installer or the app changes
     paths:
       - "installer/**"
@@ -23,6 +23,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the installer version comes from the latest tag
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -54,7 +56,11 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.0.0-dev.$env:GITHUB_RUN_NUMBER" }
+          # On a tag: 1.2.3. After it: 1.2.3-4-gabc1234 (4 commits later). No tag yet: 0.0.0-dev.<run>.
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { git describe --tags --match "[0-9]*" --match "v[0-9]*" 2>$null }
+          $version = if ($version) { $version -replace '^v', '' } else { "0.0.0-dev.$env:GITHUB_RUN_NUMBER" }
+          $global:LASTEXITCODE = 0
+          Write-Host "Installer version: $version"
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
           & $iscc "/DAppVersion=$version" installer\transcribe.iss
