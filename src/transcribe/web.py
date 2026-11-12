@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -108,7 +107,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         return {
             "meeting": _meeting_json(meeting),
             "notes": notes,
-            "segments": [asdict(s) for s in segments],
+            "segments": [s.to_dict() for s in segments],
             "transcript": render_transcript(segments, meeting.speaker_names),
         }
 

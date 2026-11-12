@@ -15,7 +15,7 @@ recordings and shows them.
 | **Language** | The spoken language of a meeting, chosen per recording: `th`, `en`, or `auto` (Whisper detects it once per track). One language per meeting. The **detected language** of each track is recorded. |
 | **Track** | The audio from one source: the `mic` track and, in `mic+system` mode, the `system` track. Each track is its own MP3 file (16 kHz mono, 64 kbps); meetings recorded before MP3 keep their WAV files, which still play and transcribe. |
 | **Speaker** | Who a segment is attributed to. In `mic+system` mode the mic track is always `You`. The system track (and the mic track in `mic` mode) is **diarized** into `Speaker 1`, `Speaker 2`, …, numbered by order of first appearance. If diarization fails, the track falls back to `Others` (system) or no label (`mic` mode). |
-| **Diarization** | Splitting a track into **speaker turns** (start, end, speaker) by voice, done locally with sherpa-onnx. Each segment gets the speaker whose turns overlap it the most. |
+| **Diarization** | Splitting a track into **speaker turns** (start, end, speaker) by voice, done locally with sherpa-onnx. Whisper gives word times, so a segment whose words fall in different speakers' turns is split there; a stretch under 1 s is not split off, since diarization flickers. A segment without word times, or not split, gets the speaker whose turns overlap it the most. |
 | **Speaker name** | A display name you give a speaker label for one meeting (`Speaker 2` → `Somchai`). It changes how the transcript is rendered, not the stored segments. |
 | **Segment** | One transcribed span: start/end seconds, speaker, text. |
 | **Echo** | In `mic+system` mode, a mic segment that repeats the system audio of the same moment: without headphones the mic hears the speakers. Echoes are left out of the transcript. |
@@ -48,12 +48,12 @@ Invariants:
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
 | `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
-| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
+| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments with word times + detected language. Word times are used for splitting only and are not stored | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
 | `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns, on up to 4 CPU threads | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
 
-Pure domain logic (no I/O): meeting id generation, assigning speakers to segments by turn overlap, numbering speakers by first appearance, applying speaker names, dropping echoes, merging the tracks' segments into a transcript,
+Pure domain logic (no I/O): meeting id generation, assigning speakers to segments by turn overlap and splitting segments at speaker changes, numbering speakers by first appearance, applying speaker names, dropping echoes, merging the tracks' segments into a transcript,
 rendering a transcript as text, searching transcripts, status transitions.
 
 ### Interfaces
@@ -111,5 +111,5 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - Meetings are transcribed one at a time. One asked for while another runs waits, and the page says so.
 - `large-v3` on CPU takes roughly 1–2× the meeting length to transcribe. Status stays `transcribing` meanwhile, with step progress.
 - Without the installer or `download-models`, the first-run model download (~3 GB for `large-v3`) has no percentage: the step shows an animated bar and a timer.
-- Diarization is approximate: overlapping speech, similar voices and very short turns get mislabelled. A segment that spans a speaker change goes to whoever spoke most of it. The number of speakers is estimated, not asked for.
+- Diarization is approximate: overlapping speech, similar voices and very short turns get mislabelled. A speaker change is split at word level, so a reply shorter than a second stays with the line it interrupts. The number of speakers is estimated, not asked for.
 - Thai-English switching inside one meeting is not handled specially. The minority language may come out poorly or get translated.

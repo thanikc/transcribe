@@ -87,11 +87,23 @@ _ALLOWED = {
 
 
 @dataclass(frozen=True)
+class Word:
+    start: float
+    end: float
+    text: str  # as Whisper gives it: English words carry their leading space, Thai ones none
+
+
+@dataclass(frozen=True)
 class Segment:
     start: float
     end: float
     text: str
     speaker: str | None = None
+    # From Whisper, used to split the segment where the speaker changes; never stored.
+    words: tuple[Word, ...] = ()
+
+    def to_dict(self) -> dict:
+        return {"start": self.start, "end": self.end, "text": self.text, "speaker": self.speaker}
 
 
 @dataclass(frozen=True)
@@ -190,15 +202,8 @@ def transition(meeting: Meeting, new: Status, error: str | None = None) -> Meeti
     return replace(meeting, status=new, error=error if new == Status.FAILED else None)
 
 
-def _overlap(segment: Segment, turn: SpeakerTurn) -> float:
+def _overlap(segment: Segment | Word, turn: SpeakerTurn) -> float:
     return min(segment.end, turn.end) - max(segment.start, turn.start)
-
-
-def assign_speakers(segments: list[Segment], turns: list[SpeakerTurn]) -> list[str | None]:
-    """Raw speaker label per segment: the turn overlapping it most (or the nearest one)."""
-    if not turns:
-        return [None] * len(segments)
-    return [max(turns, key=lambda t: _overlap(s, t)).speaker for s in segments]
 
 
 def label_track(
@@ -206,17 +211,66 @@ def label_track(
 ) -> list[Segment]:
     """Attach display speakers. `turns` is None when diarization did not run or failed."""
     if mode == "mic+system" and track == "mic":
-        return [replace(s, speaker="You") for s in segments]
+        return [replace(s, speaker="You", words=()) for s in segments]
     if turns is None:
         fallback = "Others" if track == "system" else None
-        return [replace(s, speaker=fallback) for s in segments]
+        return [replace(s, speaker=fallback, words=()) for s in segments]
     ordered = sorted(segments, key=lambda s: s.start)
     numbers: dict[str | None, str] = {}
     labelled = []
-    for segment, raw in zip(ordered, assign_speakers(ordered, turns)):
-        numbers.setdefault(raw, f"Speaker {len(numbers) + 1}")
-        labelled.append(replace(segment, speaker=numbers[raw]))
+    for segment in ordered:
+        for piece, raw in split_at_turns(segment, turns):
+            numbers.setdefault(raw, f"Speaker {len(numbers) + 1}")
+            labelled.append(replace(piece, speaker=numbers[raw]))
     return labelled
+
+
+# A shorter stretch of words than this is not split off as its own line: diarization flickers.
+MIN_PIECE = 1.0
+
+
+def _span(words: list[Word]) -> float:
+    return words[-1].end - words[0].start
+
+
+def _coalesce(runs: list[tuple[list[Word], str]]) -> list[tuple[list[Word], str]]:
+    joined: list[tuple[list[Word], str]] = []
+    for words, raw in runs:
+        if joined and joined[-1][1] == raw:
+            joined[-1] = (joined[-1][0] + words, raw)
+        else:
+            joined.append((words, raw))
+    return joined
+
+
+def split_at_turns(segment: Segment, turns: list[SpeakerTurn]) -> list[tuple[Segment, str | None]]:
+    """The segment cut where the speaker changes between its words, each piece with its raw speaker.
+
+    A segment without word times, or whose speaker changes only for blips under MIN_PIECE, stays whole
+    and goes to the speaker of most of it.
+    """
+    whole = replace(segment, words=())
+    if not turns:
+        return [(whole, None)]
+    nearest = lambda span: max(turns, key=lambda t: _overlap(span, t)).speaker  # noqa: E731
+    runs = _coalesce([([w], nearest(w)) for w in segment.words])
+    while len(runs) > 1:
+        i = min(range(len(runs)), key=lambda k: _span(runs[k][0]))
+        if _span(runs[i][0]) >= MIN_PIECE:
+            break
+        # Fold the shortest stretch into its longer neighbour, which keeps its speaker.
+        j = i - 1 if i == len(runs) - 1 or (i > 0 and _span(runs[i - 1][0]) >= _span(runs[i + 1][0])) else i + 1
+        lo, hi = sorted((i, j))
+        runs[lo : hi + 1] = [(runs[lo][0] + runs[hi][0], runs[j][1])]
+        runs = _coalesce(runs)
+    if len(runs) < 2:
+        return [(whole, nearest(segment))]
+    pieces = []
+    for n, (words, raw) in enumerate(runs):
+        start = segment.start if n == 0 else words[0].start
+        end = segment.end if n == len(runs) - 1 else words[-1].end
+        pieces.append((Segment(start, end, "".join(w.text for w in words).strip()), raw))
+    return pieces
 
 
 def rename_speaker(

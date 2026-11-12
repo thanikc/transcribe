@@ -32,8 +32,9 @@ def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, wav, language, vad_filter):
-            segs = (SimpleNamespace(start=s, end=s + 5, text=f" part {s} ") for s in (0, 5))
+        def transcribe(self, wav, language, vad_filter, word_timestamps):
+            assert word_timestamps
+            segs = (SimpleNamespace(start=s, end=s + 5, text=f" part {s} ", words=None) for s in (0, 5))
             return segs, SimpleNamespace(language="th", duration=20.0)
 
     stt = WhisperSpeechToText()
@@ -52,7 +53,7 @@ def test_whisper_logs_how_long_it_took_and_on_which_device(tmp_path, caplog):
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, wav, language, vad_filter):
+        def transcribe(self, wav, language, vad_filter, word_timestamps):
             return iter(()), SimpleNamespace(language="en", duration=125.0)
 
     stt = WhisperSpeechToText()
@@ -248,7 +249,7 @@ def test_whisper_out_of_memory_is_reported_as_such_and_drops_the_model(tmp_path)
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, path, language, vad_filter):
+        def transcribe(self, path, language, vad_filter, word_timestamps):
             raise RuntimeError("mkl_malloc: failed to allocate memory")
 
     stt = WhisperSpeechToText()
@@ -264,7 +265,7 @@ def test_whisper_other_errors_pass_through(tmp_path) -> None:
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, path, language, vad_filter):
+        def transcribe(self, path, language, vad_filter, word_timestamps):
             raise RuntimeError("boom")
 
     stt = WhisperSpeechToText()
@@ -285,7 +286,7 @@ def test_whisper_swaps_the_loaded_model_when_another_is_asked_for(monkeypatch, t
         def __init__(self, name, device, compute_type):
             loaded.append((name, device, compute_type))
 
-        def transcribe(self, path, language, vad_filter):
+        def transcribe(self, path, language, vad_filter, word_timestamps):
             return iter(()), SimpleNamespace(language="en", duration=1.0)
 
     whisper = ModuleType("faster_whisper")
@@ -338,3 +339,20 @@ def test_diarizer_runs_its_models_on_up_to_four_threads(monkeypatch, tmp_path, c
     monkeypatch.setattr(diarizer, "ensure_models", lambda: (tmp_path / "seg.onnx", tmp_path / "emb.onnx"))
     config = diarizer._load()
     assert (config.segmentation.num_threads, config.embedding.num_threads) == (threads, threads)
+
+
+def test_whisper_passes_word_times_on(tmp_path):
+    from types import SimpleNamespace
+
+    from transcribe.domain import Word
+    from transcribe.stt import WhisperSpeechToText
+
+    class Model:
+        def transcribe(self, wav, language, vad_filter, word_timestamps):
+            words = [SimpleNamespace(start=0.0, end=0.4, word=" Hi"), SimpleNamespace(start=0.4, end=1.0, word=" all")]
+            return iter([SimpleNamespace(start=0.0, end=1.0, text=" Hi all", words=words)]), SimpleNamespace(language="en", duration=1.0)
+
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded = Model(), "tiny"
+    [segment], _ = stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny")
+    assert segment.words == (Word(0.0, 0.4, " Hi"), Word(0.4, 1.0, " all"))

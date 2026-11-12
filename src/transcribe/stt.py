@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from transcribe.domain import Segment
+from transcribe.domain import Segment, Word
 from transcribe.recorder import OutOfMemory
 
 log = logging.getLogger(__name__)
@@ -96,10 +96,13 @@ class WhisperSpeechToText:
     ) -> tuple[list[Segment], str]:
         started = time.monotonic()
         # Lazy generator: the decoding happens while iterating, so progress follows it.
-        segments, info = self._load(model).transcribe(str(wav), language=language, vad_filter=True)
+        segments, info = self._load(model).transcribe(
+            str(wav), language=language, vad_filter=True, word_timestamps=True  # to split lines at speaker changes
+        )
         result = []
         for s in segments:
-            result.append(Segment(s.start, s.end, s.text.strip()))
+            words = tuple(Word(w.start, w.end, w.word) for w in s.words or ())
+            result.append(Segment(s.start, s.end, s.text.strip(), words=words))
             if info.duration:
                 on_progress(s.end / info.duration)
         on_progress(1.0)

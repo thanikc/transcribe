@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import stat
-from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
@@ -135,7 +134,7 @@ class MeetingStore:
 
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)
-        self._write_json(folder / "transcript.json", [asdict(s) for s in segments])
+        self._write_json(folder / "transcript.json", [s.to_dict() for s in segments])
 
     def load_transcript(self, meeting_id: str) -> list[Segment]:
         meeting = self.get(meeting_id)
