@@ -80,10 +80,10 @@ class WhisperSpeechToText:
             return self._model
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         try:
-            return self._transcribe(wav, language, on_progress, model)
+            return self._transcribe(wav, language, on_progress, model, vocabulary)
         except Exception as e:
             if not _is_out_of_memory(e):
                 raise
@@ -92,12 +92,17 @@ class WhisperSpeechToText:
             raise OutOfMemory(model) from e
 
     def _transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         started = time.monotonic()
         # Lazy generator: the decoding happens while iterating, so progress follows it.
         segments, info = self._load(model).transcribe(
-            str(wav), language=language, vad_filter=True, word_timestamps=True  # to split lines at speaker changes
+            str(wav),
+            language=language,
+            vad_filter=True,
+            word_timestamps=True,  # to split lines at speaker changes
+            # Unlike initial_prompt, hotwords prime every 30 s window, not only the first.
+            hotwords=", ".join(vocabulary) or None,
         )
         result = []
         for s in segments:

@@ -253,3 +253,25 @@ def test_notes_of_unknown_meeting(store):
         store.save_notes("nope", "x")
     with pytest.raises(MeetingNotFound):
         store.load_notes("../x")
+
+
+def test_vocabulary_is_read_from_the_data_dir(store):
+    assert store.vocabulary() == []
+    (store.data_dir / "vocabulary.txt").write_text("# teammates\nSomchai\n\n  Kubernetes  \n# products\nสมชาย\n", encoding="utf-8")
+    assert store.vocabulary() == ["Somchai", "Kubernetes", "สมชาย"]
+
+
+def test_vocabulary_keeps_only_whole_words_that_fit(store):
+    words = [f"word{n:03d}" for n in range(200)]  # 7 letters + ", " each: 9 apiece
+    (store.data_dir / "vocabulary.txt").write_text("\n".join(words), encoding="utf-8")
+    kept = store.vocabulary()
+    assert kept == words[: len(kept)] and len(", ".join(kept)) <= 800 < len(", ".join(words[: len(kept) + 1]))
+
+
+def test_vocabulary_file_is_created_with_a_how_to_and_never_overwritten(store):
+    path = store.vocabulary_file()
+    assert path == store.data_dir / "vocabulary.txt"
+    assert path.read_text(encoding="utf-8").startswith("# ") and store.vocabulary() == []
+    path.write_text("Somchai\n", encoding="utf-8")
+    assert store.vocabulary_file().read_text(encoding="utf-8") == "Somchai\n"
+    assert store.list() == []  # not mistaken for a meeting

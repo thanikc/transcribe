@@ -241,7 +241,7 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
             shown = [i for i in self.menu.items if i is not FakePystray.Menu.SEPARATOR and i.visible(i)]
             assert [i.text(i) if callable(i.text) else i.text for i in shown] == [
                 "Open recorder", "Start at login", "Connect to Claude Desktop",
-                "Open log", "Open meetings folder", "Version dev", "Quit",
+                "Open log", "Open meetings folder", "Edit vocabulary", "Version dev", "Quit",
             ]
             api = httpx.Client(base_url=f"http://127.0.0.1:{port}")
             api.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic"}).raise_for_status()

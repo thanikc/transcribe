@@ -33,6 +33,14 @@ def _file_size(path: Path) -> int | None:
     return info.st_size if stat.S_ISREG(info.st_mode) else None
 
 
+# Whisper's prompt holds about 220 tokens; this many characters of names leaves room for its own context.
+VOCABULARY_LIMIT = 800
+VOCABULARY_HOW_TO = """\
+# Names and words for Whisper to expect, one per line: teammates, customers, products, jargon.
+# Lines starting with # are left out. Changes apply to the next transcription.
+"""
+
+
 def _segments(raw: str) -> list[Segment]:
     return [Segment(**item) for item in json.loads(raw)]
 
@@ -131,6 +139,28 @@ class MeetingStore:
             return (self._folder(meeting_id) / "notes.md").read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
+
+    def vocabulary_file(self) -> Path:
+        """vocabulary.txt in the data dir, created with a how-to if there is none."""
+        path = self.data_dir / "vocabulary.txt"
+        if not path.exists():
+            path.write_text(VOCABULARY_HOW_TO, encoding="utf-8")
+        return path
+
+    def vocabulary(self) -> list[str]:
+        """The words in vocabulary.txt, as many whole ones as fit in VOCABULARY_LIMIT when joined."""
+        try:
+            lines = (self.data_dir / "vocabulary.txt").read_text(encoding="utf-8-sig").splitlines()
+        except FileNotFoundError:
+            return []
+        words: list[str] = []
+        for word in (line.strip() for line in lines):
+            if not word or word.startswith("#"):
+                continue
+            if len(", ".join([*words, word])) > VOCABULARY_LIMIT:
+                break
+            words.append(word)
+        return words
 
     def save_transcript(self, meeting_id: str, segments: list[Segment]) -> None:
         folder = self._folder(meeting_id)

@@ -76,13 +76,15 @@ class FakeSTT:
         self.models: list[tuple[str, str]] = []
         self.too_big: set[str] = set()
         self.downloaded = {"large-v3"}
+        self.vocabularies: list[list[str]] = []
 
     def has_model(self, model: str) -> bool:
         return model in self.downloaded
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
+        self.vocabularies.append(vocabulary)
         self.models.append((wav.stem, model))
         if model in self.too_big:
             raise OutOfMemory(model)
@@ -698,3 +700,10 @@ def test_in_person_meetings_drop_nothing(rig: Rig) -> None:
     rig.whisper.by_track = {"mic": [Segment(0, 1, "same"), Segment(0, 1, "same")]}
     meeting = rig.transcribed(rig.record())
     assert len(rig.store.load_transcript(meeting.id)) == 2 and meeting.warnings == []
+
+
+def test_vocabulary_is_given_to_whisper(rig: Rig) -> None:
+    rig.transcribed(rig.record())
+    (rig.store.data_dir / "vocabulary.txt").write_text("Somchai\nKubernetes\n", encoding="utf-8")
+    rig.transcribed(rig.record("Second"))
+    assert rig.whisper.vocabularies == [[], ["Somchai", "Kubernetes"]]

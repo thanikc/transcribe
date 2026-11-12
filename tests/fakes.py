@@ -35,7 +35,7 @@ class FakeSpeechToText:
         return model in self.downloaded
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         self.used.append(model)
         if model in self.too_big:

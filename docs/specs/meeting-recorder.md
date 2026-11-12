@@ -22,6 +22,7 @@ recordings and shows them.
 | **Transcript** | The segments of all tracks merged in start-time order. |
 | **Meeting status** | `recording` → `transcribing` → `transcribed`, or `failed` (with an error message). |
 | **Notes** | Free text kept with a meeting, such as a summary and action items Claude wrote. Not part of the transcript or search. |
+| **Vocabulary** | Names and words Whisper should expect (teammates, customers, products, jargon): `<data dir>/vocabulary.txt`, one per line, `#` lines left out. Given to Whisper as hotwords for every transcription, as many whole words as fit in 800 characters. |
 | **Search hit** | A segment whose text contains the query (case-insensitive), with its meeting id and timestamp. |
 
 ### Aggregate: Meeting
@@ -48,7 +49,7 @@ Invariants:
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
 | `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
-| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments with word times + detected language. Word times are used for splitting only and are not stored | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
+| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) + vocabulary → segments with word times + detected language. Word times are used for splitting only and are not stored | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the meeting is transcribed with `large-v3-turbo` instead (see Speech model) |
 | `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns, on up to 4 CPU threads | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
@@ -112,4 +113,4 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - `large-v3` on CPU takes roughly 1–2× the meeting length to transcribe. Status stays `transcribing` meanwhile, with step progress.
 - Without the installer or `download-models`, the first-run model download (~3 GB for `large-v3`) has no percentage: the step shows an animated bar and a timer.
 - Diarization is approximate: overlapping speech, similar voices and very short turns get mislabelled. A speaker change is split at word level, so a reply shorter than a second stays with the line it interrupts. The number of speakers is estimated, not asked for.
-- Thai-English switching inside one meeting is not handled specially. The minority language may come out poorly or get translated.
+- Thai-English switching inside one meeting is not handled specially. The minority language may come out poorly or get translated. Names and terms in the vocabulary come out better, but a long vocabulary can also make Whisper write them where they were not said.

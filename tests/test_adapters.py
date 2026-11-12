@@ -32,7 +32,7 @@ def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, wav, language, vad_filter, word_timestamps):
+        def transcribe(self, wav, language, vad_filter, word_timestamps, hotwords):
             assert word_timestamps
             segs = (SimpleNamespace(start=s, end=s + 5, text=f" part {s} ", words=None) for s in (0, 5))
             return segs, SimpleNamespace(language="th", duration=20.0)
@@ -40,7 +40,7 @@ def test_whisper_reports_how_far_through_the_audio_it_is(tmp_path):
     stt = WhisperSpeechToText()
     stt._model, stt._loaded = Model(), "tiny"
     seen = []
-    segments, language = stt.transcribe(tmp_path / "mic.wav", None, seen.append, "tiny")
+    segments, language = stt.transcribe(tmp_path / "mic.wav", None, seen.append, "tiny", [])
     assert segments == [Segment(0, 5, "part 0"), Segment(5, 10, "part 5")]
     assert language == "th"
     assert seen == [0.25, 0.5, 1.0]
@@ -53,13 +53,13 @@ def test_whisper_logs_how_long_it_took_and_on_which_device(tmp_path, caplog):
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, wav, language, vad_filter, word_timestamps):
+        def transcribe(self, wav, language, vad_filter, word_timestamps, hotwords):
             return iter(()), SimpleNamespace(language="en", duration=125.0)
 
     stt = WhisperSpeechToText()
     stt._model, stt._loaded, stt._device = Model(), "tiny", "cuda (float16)"
     with caplog.at_level(logging.INFO, logger="transcribe.stt"):
-        stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny")
+        stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny", [])
     [message] = caplog.messages
     assert message.startswith("transcribed mic.wav (2m05s of audio) with tiny in ")
     assert message.endswith("s on cuda (float16)")
@@ -249,13 +249,13 @@ def test_whisper_out_of_memory_is_reported_as_such_and_drops_the_model(tmp_path)
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, path, language, vad_filter, word_timestamps):
+        def transcribe(self, path, language, vad_filter, word_timestamps, hotwords):
             raise RuntimeError("mkl_malloc: failed to allocate memory")
 
     stt = WhisperSpeechToText()
     stt._model, stt._loaded = Model(), "large-v3"
     with pytest.raises(OutOfMemory, match="not enough free memory for the large-v3 speech model"):
-        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3")
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3", [])
     assert stt._model is None and stt._loaded == ""
 
 
@@ -265,13 +265,13 @@ def test_whisper_other_errors_pass_through(tmp_path) -> None:
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, path, language, vad_filter, word_timestamps):
+        def transcribe(self, path, language, vad_filter, word_timestamps, hotwords):
             raise RuntimeError("boom")
 
     stt = WhisperSpeechToText()
     stt._model, stt._loaded = Model(), "large-v3"
     with pytest.raises(RuntimeError, match="^boom$"):
-        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3")
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None, "large-v3", [])
     assert stt._model is not None
 
 
@@ -286,7 +286,7 @@ def test_whisper_swaps_the_loaded_model_when_another_is_asked_for(monkeypatch, t
         def __init__(self, name, device, compute_type):
             loaded.append((name, device, compute_type))
 
-        def transcribe(self, path, language, vad_filter, word_timestamps):
+        def transcribe(self, path, language, vad_filter, word_timestamps, hotwords):
             return iter(()), SimpleNamespace(language="en", duration=1.0)
 
     whisper = ModuleType("faster_whisper")
@@ -297,7 +297,7 @@ def test_whisper_swaps_the_loaded_model_when_another_is_asked_for(monkeypatch, t
     monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
     stt = WhisperSpeechToText()
     for name in ("large-v3", "large-v3", "large-v3-turbo"):
-        stt.transcribe(tmp_path / "mic.mp3", None, lambda fraction: None, name)
+        stt.transcribe(tmp_path / "mic.mp3", None, lambda fraction: None, name, [])
     assert loaded == [("large-v3", "cpu", "int8"), ("large-v3-turbo", "cpu", "int8")]
 
 
@@ -348,11 +348,30 @@ def test_whisper_passes_word_times_on(tmp_path):
     from transcribe.stt import WhisperSpeechToText
 
     class Model:
-        def transcribe(self, wav, language, vad_filter, word_timestamps):
+        def transcribe(self, wav, language, vad_filter, word_timestamps, hotwords):
             words = [SimpleNamespace(start=0.0, end=0.4, word=" Hi"), SimpleNamespace(start=0.4, end=1.0, word=" all")]
             return iter([SimpleNamespace(start=0.0, end=1.0, text=" Hi all", words=words)]), SimpleNamespace(language="en", duration=1.0)
 
     stt = WhisperSpeechToText()
     stt._model, stt._loaded = Model(), "tiny"
-    [segment], _ = stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny")
+    [segment], _ = stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny", [])
     assert segment.words == (Word(0.0, 0.4, " Hi"), Word(0.4, 1.0, " all"))
+
+
+@pytest.mark.parametrize(("vocabulary", "hotwords"), [(["Somchai", "Kubernetes"], "Somchai, Kubernetes"), ([], None)])
+def test_whisper_is_given_the_vocabulary_as_hotwords(tmp_path, vocabulary, hotwords):
+    from types import SimpleNamespace
+
+    from transcribe.stt import WhisperSpeechToText
+
+    given = []
+
+    class Model:
+        def transcribe(self, wav, **options):
+            given.append(options["hotwords"])
+            return iter(()), SimpleNamespace(language="en", duration=1.0)
+
+    stt = WhisperSpeechToText()
+    stt._model, stt._loaded = Model(), "tiny"
+    stt.transcribe(tmp_path / "mic.wav", None, lambda f: None, "tiny", vocabulary)
+    assert given == [hotwords]

@@ -36,7 +36,7 @@ class FakeSpeechToText:
         return model == "large-v3"
 
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None], model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         time.sleep(2)  # model loading: no fraction yet
         for tenth in range(1, 11):

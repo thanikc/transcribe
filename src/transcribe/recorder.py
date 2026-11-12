@@ -70,9 +70,11 @@ ProgressCallback = Callable[[float], None]
 
 class SpeechToText(Protocol):
     def transcribe(
-        self, wav: Path, language: str | None, on_progress: ProgressCallback, model: str
+        self, wav: Path, language: str | None, on_progress: ProgressCallback, model: str, vocabulary: list[str]
     ) -> tuple[list[Segment], str]:
         """Track audio + language (None = detect) -> (segments without speakers, detected language).
+
+        `vocabulary`: names and words the speech is likely to contain.
 
         Raises OutOfMemory if `model` does not fit in memory.
         """
@@ -353,6 +355,7 @@ class Recorder:
     def _run_transcription(self, meeting: Meeting) -> None:
         language = None if meeting.language == "auto" else meeting.language
         model = meeting.model or self.default_model  # meetings from before the choice existed have none
+        vocabulary = self.store.vocabulary()
         detected: dict[str, str] = {}
         warnings: list[str] = []
         segments: dict[str, list[Segment]] = {}
@@ -364,7 +367,7 @@ class Recorder:
             wav = self.store.track_path(meeting.id, step.track)
             if step.kind == "transcribe":
                 try:
-                    result = self.stt.transcribe(wav, language, report, model)
+                    result = self.stt.transcribe(wav, language, report, model, vocabulary)
                 except OutOfMemory:
                     fallback = FALLBACK_MODELS.get(model)
                     if fallback is None:
@@ -374,7 +377,7 @@ class Recorder:
                     too_big, model = model, fallback
                     self._begin_step(meeting.id, step.label, number, len(steps))
                     try:
-                        result = self.stt.transcribe(wav, language, report, model)
+                        result = self.stt.transcribe(wav, language, report, model, vocabulary)
                     except OutOfMemory:
                         raise
                     except Exception as e:  # e.g. the smaller model could not be downloaded

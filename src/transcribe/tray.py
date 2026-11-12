@@ -169,6 +169,9 @@ def main() -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         os.startfile(data_dir)
 
+    def edit_vocabulary(icon, item) -> None:
+        os.startfile(recorder.store.vocabulary_file())
+
     def quit_app(icon, item) -> None:
         stopping.set()
         for stop in stop_checking:
@@ -227,6 +230,7 @@ def main() -> None:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Open log", lambda icon, item: os.startfile(log_file)),
         pystray.MenuItem("Open meetings folder", open_meetings),
+        pystray.MenuItem("Edit vocabulary", edit_vocabulary),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(f"Version {updates.installed}", lambda icon, item: None, enabled=False),
         pystray.MenuItem(
