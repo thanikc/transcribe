@@ -26,6 +26,7 @@ from transcribe.domain import (
     Segment,
     SpeakerTurn,
     Status,
+    drop_echoes,
     label_track,
     meeting_id,
     merge_transcript,
@@ -387,6 +388,11 @@ class Recorder:
                 turns[step.track] = self.diarizer.diarize(wav, report)
             except Exception as e:
                 warnings.append(f"speaker detection failed: {e}")
+        if "mic" in segments and "system" in segments:
+            segments["mic"], echoes = drop_echoes(segments["mic"], segments["system"])
+            if echoes:
+                lines = "line" if echoes == 1 else "lines"
+                warnings.append(f"left out {echoes} microphone {lines} that repeated the system audio")
         labelled = {
             track: label_track(segs, track, meeting.mode, turns.get(track)) for track, segs in segments.items()
         }

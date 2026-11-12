@@ -679,3 +679,22 @@ def test_notes_survive_transcribing_again(rig: Rig) -> None:
     assert rig.store.load_notes(meeting.id) == "Action: send the budget"
     with pytest.raises(MeetingNotFound):
         rig.recorder.save_notes("nope", "x")
+
+
+def test_online_call_leaves_out_mic_echoes_of_the_system_audio(rig: Rig) -> None:
+    rig.whisper.by_track = {
+        "mic": [Segment(2.1, 3.0, "hello let's start"), Segment(5.0, 6.0, "Sounds good")],
+        "system": [Segment(2.0, 3.0, "Hello, let's start")],
+    }
+    rig.diarizer.turns = {"system": [SpeakerTurn(1.5, 4.0, "A")]}
+    meeting = rig.transcribed(rig.record("Call", "mic+system"))
+    assert render_transcript(rig.store.load_transcript(meeting.id), {}) == (
+        "[00:02] Speaker 1: Hello, let's start\n[00:05] You: Sounds good"
+    )
+    assert meeting.warnings == ["left out 1 microphone line that repeated the system audio"]
+
+
+def test_in_person_meetings_drop_nothing(rig: Rig) -> None:
+    rig.whisper.by_track = {"mic": [Segment(0, 1, "same"), Segment(0, 1, "same")]}
+    meeting = rig.transcribed(rig.record())
+    assert len(rig.store.load_transcript(meeting.id)) == 2 and meeting.warnings == []

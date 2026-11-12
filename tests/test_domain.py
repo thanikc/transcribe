@@ -10,6 +10,7 @@ from transcribe.domain import (
     Status,
     UnknownSpeaker,
     assign_speakers,
+    drop_echoes,
     label_track,
     meeting_id,
     merge_transcript,
@@ -222,3 +223,45 @@ def test_search_finds_thai_substrings():
 )
 def test_transcription_steps_of_each_mode(mode: str, labels: list[str]) -> None:
     assert [step.label for step in transcription_steps(mode)] == labels
+
+
+def test_mic_line_repeating_system_audio_at_the_same_time_is_an_echo() -> None:
+    system = [Segment(3.0, 6.0, "Let's start with the budget.")]
+    assert drop_echoes([Segment(3.2, 6.1, "let's start with the budget")], system) == ([], 1)
+
+
+def test_echo_is_found_across_differently_split_lines() -> None:
+    system = [Segment(3.0, 4.0, "Let's start"), Segment(4.0, 6.0, "with the budget.")]
+    assert drop_echoes([Segment(3.1, 6.0, "let's start with the budget")], system) == ([], 1)
+
+
+def test_thai_echo_is_found() -> None:
+    system = [Segment(6.0, 9.0, "งบประมาณปีนี้เพิ่มขึ้น")]
+    assert drop_echoes([Segment(6.1, 9.0, "งบประมาณปีนี้เพิ่มขึ้นครับ")], system) == ([], 1)
+
+
+def test_my_own_words_over_system_audio_are_kept() -> None:
+    mine = Segment(7.0, 8.0, "I disagree")
+    assert drop_echoes([mine], [Segment(6.5, 8.5, "the numbers look fine")]) == ([mine], 0)
+
+
+def test_same_words_at_another_time_are_kept() -> None:
+    mine = Segment(40.0, 41.0, "sounds good")
+    assert drop_echoes([mine], [Segment(10.0, 11.0, "sounds good")]) == ([mine], 0)
+
+
+def test_echo_tolerates_a_second_of_timing_difference_only() -> None:
+    system = [Segment(10.0, 12.0, "the deadline is Friday")]
+    assert drop_echoes([Segment(12.8, 14.0, "the deadline is Friday")], system) == ([], 1)
+    late = Segment(13.5, 15.0, "the deadline is Friday")
+    assert drop_echoes([late], system) == ([late], 0)
+
+
+def test_a_line_without_letters_is_not_an_echo() -> None:
+    mine = Segment(1.0, 2.0, "...")
+    assert drop_echoes([mine], [Segment(1.0, 2.0, "...")]) == ([mine], 0)
+
+
+def test_a_short_line_sharing_stray_letters_is_not_an_echo() -> None:
+    mine = Segment(0.0, 1.0, "Hi all")
+    assert drop_echoes([mine], [Segment(2.0, 3.0, "Hello, let's start")]) == ([mine], 0)

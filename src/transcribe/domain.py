@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
+from difflib import SequenceMatcher
 from enum import StrEnum
 from typing import Iterable, Literal
 
@@ -226,6 +228,42 @@ def rename_speaker(
     if name.strip():
         updated[speaker] = name.strip()
     return updated
+
+
+# How far apart the two tracks' timings of one utterance can be, and how much of a mic line has to
+# appear in the system audio for it to count as the mic hearing the speakers.
+ECHO_WINDOW = 1.0
+ECHO_SHARE = 0.6
+# Shared letters count only in runs this long: stray single letters are found in any sentence.
+ECHO_RUN = 3
+
+
+def _letters(text: str) -> str:
+    """Letters, marks (Thai vowels and tones) and digits only, case-folded: what two transcriptions of one
+    utterance share regardless of punctuation and spacing."""
+    return "".join(c for c in text.casefold() if unicodedata.category(c)[0] in "LMN")
+
+
+def drop_echoes(mic: list[Segment], system: list[Segment]) -> tuple[list[Segment], int]:
+    """Mic segments without the ones that repeat concurrent system audio, and how many were dropped.
+
+    Without headphones the mic hears the speakers, so remote speech is transcribed from both tracks.
+    """
+    kept = []
+    for segment in mic:
+        heard = _letters(segment.text)
+        nearby = "".join(
+            _letters(s.text)
+            for s in system
+            if s.end >= segment.start - ECHO_WINDOW and s.start <= segment.end + ECHO_WINDOW
+        )
+        if heard and nearby:
+            blocks = SequenceMatcher(None, heard, nearby, autojunk=False).get_matching_blocks()
+            shared = sum(b.size for b in blocks if b.size >= ECHO_RUN)
+            if shared >= ECHO_SHARE * len(heard):
+                continue
+        kept.append(segment)
+    return kept, len(mic) - len(kept)
 
 
 def merge_transcript(tracks: dict[str, list[Segment]]) -> list[Segment]:

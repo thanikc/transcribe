@@ -18,6 +18,7 @@ recordings and shows them.
 | **Diarization** | Splitting a track into **speaker turns** (start, end, speaker) by voice, done locally with sherpa-onnx. Each segment gets the speaker whose turns overlap it the most. |
 | **Speaker name** | A display name you give a speaker label for one meeting (`Speaker 2` → `Somchai`). It changes how the transcript is rendered, not the stored segments. |
 | **Segment** | One transcribed span: start/end seconds, speaker, text. |
+| **Echo** | In `mic+system` mode, a mic segment that repeats the system audio of the same moment: without headphones the mic hears the speakers. Echoes are left out of the transcript. |
 | **Transcript** | The segments of all tracks merged in start-time order. |
 | **Meeting status** | `recording` → `transcribing` → `transcribed`, or `failed` (with an error message). |
 | **Notes** | Free text kept with a meeting, such as a summary and action items Claude wrote. Not part of the transcript or search. |
@@ -34,6 +35,7 @@ Invariants:
 - Only one recording can be active at a time. The **recorder service** is the only process that captures audio, and starting another recording while one is active is an error.
 - Audio goes to disk as it is captured, so a crash loses at most the last buffer, not the meeting.
 - A transcript exists only when the status is `transcribed`.
+- A mic segment is an echo only if system segments within 1 s of it contain at least 60% of its letters (Thai marks and digits included; punctuation, spacing and case ignored), counting shared runs of 3 or more. The meeting gets the warning "left out N microphone lines that repeated the system audio".
 - Diarization failure never fails a meeting: the transcript is kept with track-level labels and a warning on the meeting.
 - Speaker names belong to one meeting. Transcribing again clears them, because the new diarization may number speakers differently. Giving two labels the same name is allowed (it merges them on display).
 - Status changes go in one direction (`recording → transcribing → transcribed|failed`). A failed meeting keeps its audio so it can be transcribed again.
@@ -51,7 +53,7 @@ Invariants:
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
 
-Pure domain logic (no I/O): meeting id generation, assigning speakers to segments by turn overlap, numbering speakers by first appearance, applying speaker names, merging the tracks' segments into a transcript,
+Pure domain logic (no I/O): meeting id generation, assigning speakers to segments by turn overlap, numbering speakers by first appearance, applying speaker names, dropping echoes, merging the tracks' segments into a transcript,
 rendering a transcript as text, searching transcripts, status transitions.
 
 ### Interfaces
@@ -102,7 +104,7 @@ transcribe serve  (http://127.0.0.1:8765, owns the Recorder)
 - `TRANSCRIBE_PORT`: service port, default `8765`
 
 ### Known limits
-- Without headphones, the mic also picks up the speakers. In `mic+system` mode, remote speech can then appear twice (`You` and `Others`).
+- Without headphones, the mic also picks up the speakers. In `mic+system` mode such echoes are left out by matching text and time, so an echo Whisper heard very differently on the two tracks can still appear twice, and a reply that repeats the other side word for word at the same moment is left out.
 - `transcribe serve` has to be running for start/stop to work, from the web, Claude or the CLI. Otherwise clients say "recorder service not running, start it with `transcribe serve`". Reading transcripts through MCP also goes through the service.
 - If the service stops during a recording, that meeting is left `recording`. On startup, the service marks such meetings `failed` ("interrupted"), and their audio can still be transcribed.
 - Transcription happens after the recording, not live.
