@@ -69,6 +69,21 @@ def test_scripts_route_serves_only_script_files(rig: Rig) -> None:
     assert rig.client.get("/static/js/%2e%2e%2f%2e%2e%2fweb.py").status_code == 404
 
 
+def test_index_loads_its_stylesheets(rig: Rig) -> None:
+    page = rig.client.get("/").text
+    for name in ("tokens.css", "base.css", "layout.css", "sidebar.css", "meeting.css"):
+        assert f'<link rel="stylesheet" href="/static/css/{name}">' in page
+        css = rig.client.get(f"/static/css/{name}")
+        assert css.status_code == 200
+        assert css.headers["content-type"] == "text/css; charset=utf-8"
+
+
+def test_styles_route_serves_only_style_files(rig: Rig) -> None:
+    assert rig.client.get("/static/css/missing.css").status_code == 404
+    assert rig.client.get("/static/css/..%2Findex.html").status_code == 404
+    assert rig.client.get("/static/css/%2e%2e%2f%2e%2e%2fweb.py").status_code == 404
+
+
 def test_start_stop_round_trip(rig: Rig) -> None:
     started = rig.client.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic", "language": "th"})
     assert started.status_code == 201

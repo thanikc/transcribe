@@ -43,6 +43,7 @@ from transcribe.updates import UpdateError, UpdateService
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 SCRIPT_NAME = re.compile(r"[a-z]+\.js")
+STYLE_NAME = re.compile(r"[a-z]+\.css")
 IMPORT_PATH = "/api/meetings/import"
 # Raw audio, not form data: a browser sends it cross-site only after a preflight, which this service never answers.
 AUDIO_UPLOAD = "application/octet-stream"
@@ -120,14 +121,19 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
     async def index(request: Request) -> Response:
         return FileResponse(INDEX_HTML, media_type="text/html; charset=utf-8")
 
+    def _static_file(subdir: str, pattern: re.Pattern[str], media_type: str, name: str) -> Response:
+        path = STATIC_DIR / subdir / name
+        if not pattern.fullmatch(name) or not path.is_file():
+            return _error("not found", 404)
+        return FileResponse(path, media_type=media_type)
+
     def script(request: Request) -> Response:
         # Served with an explicit type: browsers refuse module scripts that arrive as text/plain,
         # which is what Windows can guess for .js from its registry.
-        name = request.path_params["name"]
-        path = STATIC_DIR / "js" / name
-        if not SCRIPT_NAME.fullmatch(name) or not path.is_file():
-            return _error("not found", 404)
-        return FileResponse(path, media_type="text/javascript; charset=utf-8")
+        return _static_file("js", SCRIPT_NAME, "text/javascript; charset=utf-8", request.path_params["name"])
+
+    def style(request: Request) -> Response:
+        return _static_file("css", STYLE_NAME, "text/css; charset=utf-8", request.path_params["name"])
 
     async def status(request: Request) -> Response:
         return JSONResponse(recorder.status())
@@ -279,6 +285,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
     routes = [
         Route("/", index),
+        Route("/static/css/{name}", style),
         Route("/static/js/{name}", script),
         Route("/api/status", status),
         Route("/api/recordings/start", start, methods=["POST"]),

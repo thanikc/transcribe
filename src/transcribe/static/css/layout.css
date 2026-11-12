@@ -1,0 +1,180 @@
+/* App Shell: Persistent Top Control Dock + Full-Height Reading Grid */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* 1. Persistent Top Recording & Capture Dock */
+.top-dock {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.dock-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-right: var(--sp-1);
+}
+
+h1 {
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  white-space: nowrap;
+}
+
+#status {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  padding: 2px var(--sp-2);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+#status.rec {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  font-weight: 600;
+}
+
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1 1 320px;
+}
+
+.rec-controls .title-input {
+  flex: 1 1 180px;
+  max-width: 300px;
+  height: 32px;
+  padding: 0 var(--sp-2);
+  font-size: var(--text-sm);
+}
+
+/* Inline Level Meters in Dock */
+#meters {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  padding: 0 var(--sp-2);
+}
+#meters[hidden] { display: none; }
+.meter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+#meters .bar {
+  width: 56px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+#meters .bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+#meters .quiet {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Popover Drawers in Top Dock */
+.dock-drawers {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+details.popover {
+  position: relative;
+}
+
+details.popover > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 32px;
+  padding: 0 var(--sp-3);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  user-select: none;
+  white-space: nowrap;
+}
+
+details.popover > summary::-webkit-details-marker { display: none; }
+details.popover > summary:hover { background: var(--hover); color: var(--text); }
+details.popover[open] > summary {
+  border-color: var(--text);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.popover-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--sp-1));
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
+  z-index: 50;
+}
+
+/* 2. Main Swiss 2-Column Workspace */
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+@media (max-width: 820px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  .popover-body {
+    left: 0;
+    right: auto;
+    width: min(300px, 92vw);
+  }
+}

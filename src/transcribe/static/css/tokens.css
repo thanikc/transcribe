@@ -1,0 +1,84 @@
+:root {
+  color-scheme: light dark;
+
+  /* 4px / 8px Swiss Spatial Scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Typography Scale & Stacks */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Leelawadee UI", "Noto Sans Thai", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  --text-xs: 0.75rem;     /* 12px — labels, badges, metadata */
+  --text-sm: 0.8125rem;   /* 13px — timestamps, speaker tags, controls */
+  --text-base: 0.9375rem; /* 15px — UI body */
+  --text-read: 1rem;      /* 16px — transcript body text */
+  --text-lg: 1.125rem;    /* 18px — meeting title */
+
+  /* Swiss Minimalist Color System — Light (Archival Paper & Ink) */
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --surface-subtle: #efefec;
+  --text: #111315;
+  --text-secondary: #373c44;
+  --muted: #636b75;
+  --border: #dddeda;
+  --border-strong: #111315;
+  --accent: #0047ab;
+  --accent-text: #ffffff;
+  --accent-soft: #edf3fc;
+  --danger: #c81e1e;
+  --danger-bg: #fdf2f2;
+  --ok: #156534;
+  --ok-bg: #eef8f1;
+  --warn: #8f4f00;
+  --warn-bg: #fef7ec;
+  --hover: #f0f1ee;
+
+  /* Distinct High-Contrast Speaker Palette (4.5:1+ on light) */
+  --sp0: #0047ab;
+  --sp1: #b43e12;
+  --sp2: #126b40;
+  --sp3: #6e2ea1;
+  --sp4: #9c1f4b;
+  --sp5: #4d5e00;
+
+  --header-h: 52px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0f12;
+    --panel: #14171c;
+    --surface-subtle: #1c2027;
+    --text: #f1f3f5;
+    --text-secondary: #c8cfd8;
+    --muted: #8a94a2;
+    --border: #262c36;
+    --border-strong: #f1f3f5;
+    --accent: #5294ff;
+    --accent-text: #08101d;
+    --accent-soft: #17243a;
+    --danger: #ff7b72;
+    --danger-bg: #321616;
+    --ok: #5cd68d;
+    --ok-bg: #12291c;
+    --warn: #f2b84b;
+    --warn-bg: #2c2110;
+    --hover: #1e232b;
+
+    /* Distinct Speaker Palette (4.5:1+ on dark) */
+    --sp0: #7cb0ff;
+    --sp1: #ff9e6c;
+    --sp2: #68d89b;
+    --sp3: #d69df5;
+    --sp4: #f78bab;
+    --sp5: #c9db6b;
+  }
+}
