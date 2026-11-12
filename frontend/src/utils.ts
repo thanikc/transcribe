@@ -1,4 +1,8 @@
-import type { SpeechModelInfo, TranscriptionProgress } from "./types";
+import type {
+  SpeechModelInfo,
+  TranscriptionProgress,
+  TranscriptSegment,
+} from "./types";
 
 export const STATUS_LABEL: Record<string, string> = {
   recording: "recording",
@@ -23,11 +27,6 @@ export const MODE_LABEL: Record<string, string> = {
   mic: "In person (mic)",
   "mic+system": "Online call (mic + system audio)",
   file: "Imported file",
-};
-
-export const SHORT_MODE: Record<string, string> = {
-  mic: "Mic",
-  "mic+system": "Mic + Sys",
 };
 
 export const MODEL_NOTE: Record<string, string> = {
@@ -72,8 +71,11 @@ export function defaultModelName(models: SpeechModelInfo[]): string {
   return models.find((m) => m.default)?.name || "";
 }
 
-export function openMeetingHash(id: string): void {
-  const target = "#/meeting/" + encodeURIComponent(id);
+export function openMeetingHash(id: string, start?: number): void {
+  const target =
+    "#/meeting/" +
+    encodeURIComponent(id) +
+    (start != null ? `?t=${start}` : "");
   if (window.location.hash !== target) {
     window.location.hash = target;
   } else {
@@ -81,12 +83,161 @@ export function openMeetingHash(id: string): void {
   }
 }
 
-export function parseMeetingIdFromHash(hash: string): string | null {
-  const m = hash.match(/^#\/meeting\/(.+)$/);
+/** `#/meeting/<id>[?t=<seconds>]`; the id is URI-encoded, so `?` is unambiguous. */
+export function parseMeetingHash(
+  hash: string,
+): { id: string; t: number | null } | null {
+  const m = hash.match(/^#\/meeting\/([^?]+)(?:\?(.*))?$/);
   if (!m) return null;
+  let id: string;
   try {
-    return decodeURIComponent(m[1]);
+    id = decodeURIComponent(m[1]);
   } catch {
     return null;
   }
+  const raw = new URLSearchParams(m[2] || "").get("t");
+  const t = raw !== null && raw !== "" ? Number(raw) : NaN;
+  return { id, t: Number.isFinite(t) ? t : null };
+}
+
+export function parseMeetingIdFromHash(hash: string): string | null {
+  return parseMeetingHash(hash)?.id ?? null;
+}
+
+/** Splits text into plain and matched parts (case-insensitive) for <mark>. */
+export function markMatches(
+  text: string,
+  query: string,
+): { text: string; match: boolean }[] {
+  const q = query.trim();
+  if (!q) return [{ text, match: false }];
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .split(new RegExp(`(${escaped})`, "gi"))
+    .map((part, i) => ({ text: part, match: i % 2 === 1 }))
+    .filter((p) => p.text !== "");
+}
+
+/** Index of the segment whose start is nearest `t`. */
+export function nearestSegment(
+  segments: { start: number }[],
+  t: number,
+): number {
+  let best = -1;
+  for (let i = 0; i < segments.length; i++) {
+    if (best < 0 || Math.abs(segments[i].start - t) < Math.abs(segments[best].start - t)) {
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Colour index per raw speaker label, in order of first appearance. */
+export function speakerPalette(
+  segments: TranscriptSegment[] | null | undefined,
+): Record<string, number> {
+  const palette: Record<string, number> = {};
+  let next = 0;
+  for (const s of segments || []) {
+    if (s.speaker && !(s.speaker in palette)) palette[s.speaker] = next++ % 6;
+  }
+  return palette;
+}
+
+export const TURN_MAX_SECONDS = 60;
+export const TURN_PAUSE_SECONDS = 2;
+
+/** Consecutive lines of one speaker on one track; `index` is the line's place in the transcript. */
+export interface Turn {
+  speaker: string | null;
+  track: string;
+  start: number;
+  lines: { segment: TranscriptSegment; index: number }[];
+}
+
+/**
+ * Groups lines into speaker turns. A turn is closed early once it has run
+ * 60 s or at a pause over 2 s, so long monologues read as paragraphs.
+ */
+export function groupTurns(
+  segments: TranscriptSegment[],
+  trackOf: (s: TranscriptSegment) => string,
+): Turn[] {
+  const turns: Turn[] = [];
+  let current: Turn | null = null;
+  let currentEnd = 0;
+  segments.forEach((segment, index) => {
+    const speaker = segment.speaker ?? null;
+    const track = trackOf(segment);
+    const joins =
+      current !== null &&
+      current.speaker === speaker &&
+      current.track === track &&
+      segment.start - currentEnd <= TURN_PAUSE_SECONDS &&
+      segment.start - current.start < TURN_MAX_SECONDS;
+    if (joins && current) {
+      current.lines.push({ segment, index });
+    } else {
+      current = { speaker, track, start: segment.start, lines: [{ segment, index }] };
+      turns.push(current);
+    }
+    currentEnd = segment.end;
+  });
+  return turns;
+}
+
+/** The line being played: its span holds `time`; of overlapping lines, the one that started last. */
+export function playingLine(
+  segments: TranscriptSegment[],
+  time: number | null,
+): number | null {
+  if (time === null) return null;
+  let found: number | null = null;
+  segments.forEach((s, i) => {
+    if (time >= s.start && time < s.end) {
+      if (found === null || s.start >= segments[found].start) found = i;
+    }
+  });
+  return found;
+}
+
+/** Meetings (newest first) under Today, Yesterday, Earlier this week, then by month; local dates. */
+export function groupByDay<T extends { started_at: string }>(
+  meetings: T[],
+  now: Date,
+): { label: string; meetings: T[] }[] {
+  const day = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = day(now);
+  const yesterday = day(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1),
+  );
+  // weeks start on Monday
+  const weekStart = day(
+    new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - ((now.getDay() + 6) % 7),
+    ),
+  );
+  const groups: { label: string; meetings: T[] }[] = [];
+  for (const m of meetings) {
+    const started = new Date(m.started_at);
+    const d = day(started);
+    const label =
+      d >= today
+        ? "Today"
+        : d === yesterday
+          ? "Yesterday"
+          : d >= weekStart
+            ? "Earlier this week"
+            : started.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              });
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.meetings.push(m);
+    else groups.push({ label, meetings: [m] });
+  }
+  return groups;
 }

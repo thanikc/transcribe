@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
 import type { SpeechModelInfo } from "../types";
 import { mmss } from "../utils";
-import { ImportDrawer } from "./ImportDrawer";
+import { ImportDrawer, type DroppedFile } from "./ImportDrawer";
 import { LevelMeters } from "./LevelMeters";
 import { SettingsDrawer } from "./SettingsDrawer";
+
+const MODES: [string, string, string][] = [
+  ["mic", "In person", "Microphone only"],
+  ["mic+system", "Online call", "Microphone + what your speakers play"],
+];
 
 interface TopDockProps {
   recording: boolean;
   busy: boolean;
+  offline: boolean;
   recTitle: string;
   elapsed: number;
   elapsedAt: number;
@@ -15,6 +21,9 @@ interface TopDockProps {
   recError: string;
   title: string;
   onTitleChange: (title: string) => void;
+  /** While recording: rename the recording to the field's text. */
+  onCommitTitle: () => void;
+  onRevertTitle: () => void;
   mode: string;
   onModeChange: (mode: string) => void;
   language: string;
@@ -24,11 +33,13 @@ interface TopDockProps {
   models: SpeechModelInfo[];
   onToggleRecording: () => void;
   onImported: (meetingId: string) => Promise<void> | void;
+  dropped: DroppedFile | null;
 }
 
 export function TopDock({
   recording,
   busy,
+  offline,
   recTitle,
   elapsed,
   elapsedAt,
@@ -36,6 +47,8 @@ export function TopDock({
   recError,
   title,
   onTitleChange,
+  onCommitTitle,
+  onRevertTitle,
   mode,
   onModeChange,
   language,
@@ -45,33 +58,35 @@ export function TopDock({
   models,
   onToggleRecording,
   onImported,
+  dropped,
 }: TopDockProps) {
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    if (!recording || busy) return;
+    if (!recording || busy || offline) return;
     const id = setInterval(() => {
       if (!document.hidden) setTick((t) => t + 1);
     }, 250);
     return () => clearInterval(id);
-  }, [recording, busy]);
+  }, [recording, busy, offline]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         for (const d of document.querySelectorAll<HTMLDetailsElement>(
-          "details.popover[open]",
+          "details.popover[open]:not([data-busy])",
         )) {
           d.open = false;
         }
       }
     };
     const onClick = (e: MouseEvent) => {
-      const target = e.target as Node | null;
+      // the path, not contains(): the clicked button may already be re-rendered away
+      const path = e.composedPath();
       for (const d of document.querySelectorAll<HTMLDetailsElement>(
-        "details.popover[open]",
+        "details.popover[open]:not([data-busy])",
       )) {
-        if (target && !d.contains(target)) {
+        if (!path.includes(d)) {
           d.open = false;
         }
       }
@@ -86,7 +101,9 @@ export function TopDock({
 
   let statusText = "Not recording";
   let statusClass = "";
-  if (busy) {
+  if (offline) {
+    statusText = "Disconnected";
+  } else if (busy) {
     statusText = recording ? "Stopping…" : "Starting…";
   } else if (recording) {
     const currentElapsed =
@@ -119,15 +136,48 @@ export function TopDock({
             id="title"
             className="title-input"
             placeholder="Meeting title…"
+            title={recording ? "Rename this recording: type and press Enter" : undefined}
             autoComplete="off"
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (!recording) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onCommitTitle();
+              } else if (e.key === "Escape") {
+                onRevertTitle();
+              }
+            }}
+            onBlur={() => {
+              if (recording) onCommitTitle();
+            }}
           />
+          <div
+            className="mode-switch"
+            role="radiogroup"
+            aria-label="Mode"
+            aria-disabled={recording || undefined}
+          >
+            {MODES.map(([value, label, hint]) => (
+              <label key={value} title={hint}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value={value}
+                  checked={mode === value}
+                  disabled={recording || busy}
+                  onChange={() => onModeChange(value)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
           <button
             type="button"
             id="toggle"
             className={recording ? "stop" : "primary"}
-            disabled={busy}
+            disabled={busy || offline}
             onClick={onToggleRecording}
           >
             {recording ? "Stop recording" : "Start recording"}
@@ -137,8 +187,6 @@ export function TopDock({
 
         <div className="dock-drawers">
           <SettingsDrawer
-            mode={mode}
-            onModeChange={onModeChange}
             language={language}
             onLanguageChange={onLanguageChange}
             model={model}
@@ -146,13 +194,19 @@ export function TopDock({
             models={models}
           />
           <ImportDrawer
-            title={title}
+            dropped={dropped}
             language={language}
             model={model}
             onImported={onImported}
           />
         </div>
       </div>
+      {offline && (
+        <div className="offline-banner" role="alert">
+          Can't reach the recorder. Check that Transcribe is running; this page
+          reconnects by itself.
+        </div>
+      )}
       <div id="rec-error" className="err" role="alert">
         {recError}
       </div>

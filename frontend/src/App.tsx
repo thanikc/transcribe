@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { MeetingView } from "./components/MeetingView";
 import { Sidebar } from "./components/Sidebar";
+import type { DroppedFile } from "./components/ImportDrawer";
 import { TopDock } from "./components/TopDock";
+import { IDLE_ICON, RECORDING_ICON } from "./favicon";
 import type {
   Meeting,
   MeetingDetail,
@@ -12,10 +14,24 @@ import type {
 import {
   defaultModelName,
   openMeetingHash,
+  parseMeetingHash,
   parseMeetingIdFromHash,
 } from "./utils";
 
 const MODEL_KEY = "transcribe.model";
+const MODE_KEY = "transcribe.mode";
+
+function savedMode(): string {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    return v === "mic" || v === "mic+system" ? v : "mic";
+  } catch {
+    return "mic";
+  }
+}
+const OFFLINE_AFTER = 3;
+// a hidden tab still checks this often while it last saw a recording, so its title doesn't lie
+const HIDDEN_POLL_MS = 5000;
 
 export const inProgress = (d: MeetingDetail | null): boolean =>
   !!d &&
@@ -32,10 +48,22 @@ export function App() {
   const [recError, setRecError] = useState("");
   const recordingRef = useRef(false);
   const busyRef = useRef(false);
+  const [offline, setOffline] = useState(false);
+  const failedPollsRef = useRef(0);
 
   // Recording settings
-  const [title, setTitle] = useState("");
-  const [mode, setMode] = useState("mic");
+  const [title, setTitleState] = useState("");
+  const titleRef = useRef("");
+  const setTitle = useCallback((t: string) => {
+    titleRef.current = t;
+    setTitleState(t);
+  }, []);
+  // the recording's title as the service has it, and its meeting id
+  const liveTitleRef = useRef("");
+  const recIdRef = useRef<string | null>(null);
+  const renamingRef = useRef(false);
+  const [mode, setMode] = useState(savedMode);
+  const [recMode, setRecMode] = useState("");
   const [language, setLanguage] = useState("auto");
   const [models, setModels] = useState<SpeechModelInfo[]>([]);
   const [model, setModel] = useState("");
@@ -51,8 +79,15 @@ export function App() {
   const detailRef = useRef<MeetingDetail | null>(null);
   const [detailAt, setDetailAt] = useState(0);
   const [viewError, setViewError] = useState("");
+  // a line to scroll to (search hit); the nonce makes the same hit scroll again
+  const [focus, setFocus] = useState<{ t: number; nonce: number } | null>(null);
+  const focusNonceRef = useRef(0);
   const viewTokenRef = useRef(0);
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // A file dragged onto the page, handed to the import panel
+  const [dragging, setDragging] = useState(false);
+  const [dropped, setDropped] = useState<DroppedFile | null>(null);
 
   // Version refresh trigger
   const [versionRefreshTick, setVersionRefreshTick] = useState(0);
@@ -69,29 +104,6 @@ export function App() {
       /* ignore */
     }
   }, []);
-
-  const pollStatus = useCallback(async () => {
-    try {
-      const st = await api<RecorderStatus>("GET", "/api/status");
-      const wasRec = recordingRef.current;
-      const nowRec = !!st.recording;
-      recordingRef.current = nowRec;
-      setRecording(nowRec);
-      if (nowRec) {
-        setRecTitle(st.title || st.meeting_id || "");
-        setElapsed(st.elapsed || 0);
-        setElapsedAt(performance.now());
-        setLevels(st.levels || null);
-      } else {
-        setLevels(null);
-      }
-      if (wasRec !== nowRec) {
-        loadMeetings();
-      }
-    } catch {
-      /* transient; try again next tick */
-    }
-  }, [loadMeetings]);
 
   const loadModels = useCallback(async () => {
     try {
@@ -114,6 +126,54 @@ export function App() {
       /* ignore */
     }
   }, []);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const st = await api<RecorderStatus>("GET", "/api/status");
+      const wasRec = recordingRef.current;
+      const nowRec = !!st.recording;
+      recordingRef.current = nowRec;
+      setRecording(nowRec);
+      if (nowRec) {
+        recIdRef.current = st.meeting_id || null;
+        liveTitleRef.current = st.title || "";
+        // don't overwrite what is being typed
+        if (!renamingRef.current && document.activeElement?.id !== "title") {
+          setTitle(st.title || "");
+        }
+        setRecTitle(st.title || st.meeting_id || "");
+        setRecMode(st.mode || "");
+        setElapsed(st.elapsed || 0);
+        setElapsedAt(performance.now());
+        setLevels(st.levels || null);
+      } else {
+        setLevels(null);
+        if (wasRec) setTitle("");
+      }
+      if (wasRec !== nowRec) {
+        loadMeetings();
+      }
+      if (failedPollsRef.current >= OFFLINE_AFTER) {
+        loadMeetings();
+        loadModels();
+      }
+      failedPollsRef.current = 0;
+      setOffline(false);
+    } catch {
+      // one miss is transient; several in a row mean the service is gone
+      failedPollsRef.current++;
+      if (failedPollsRef.current >= OFFLINE_AFTER) setOffline(true);
+    }
+  }, [loadMeetings, loadModels, setTitle]);
+
+  const handleModeChange = (nextMode: string) => {
+    setMode(nextMode);
+    try {
+      localStorage.setItem(MODE_KEY, nextMode);
+    } catch {
+      /* private window */
+    }
+  };
 
   const handleModelChange = (nextModel: string) => {
     setModel(nextModel);
@@ -193,7 +253,11 @@ export function App() {
   );
 
   const routeFromHash = useCallback(() => {
-    const id = parseMeetingIdFromHash(window.location.hash);
+    const target = parseMeetingHash(window.location.hash);
+    const id = target?.id;
+    setFocus(
+      target?.t != null ? { t: target.t, nonce: ++focusNonceRef.current } : null,
+    );
     if (id) {
       showMeeting(id);
     } else {
@@ -236,8 +300,17 @@ export function App() {
   }, [pollStatus, loadMeetings, showMeeting]);
 
   useEffect(() => {
+    let lastHiddenPoll = 0;
     const statusInterval = setInterval(() => {
-      if (!document.hidden) pollStatus();
+      if (!document.hidden) {
+        pollStatus();
+      } else if (
+        recordingRef.current &&
+        Date.now() - lastHiddenPoll >= HIDDEN_POLL_MS
+      ) {
+        lastHiddenPoll = Date.now();
+        pollStatus();
+      }
     }, 1000);
     const listInterval = setInterval(() => {
       if (document.hidden) return;
@@ -255,6 +328,59 @@ export function App() {
     };
   }, [pollStatus, loadMeetings]);
 
+  useEffect(() => {
+    let depth = 0; // dragenter/leave fire for every child crossed
+    const hasFiles = (e: DragEvent) =>
+      !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setDragging(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); // or the browser opens the file
+      depth = 0;
+      setDragging(false);
+      const files = Array.from(e.dataTransfer?.files || []);
+      const media = files.find(
+        (f) => f.type.startsWith("audio/") || f.type.startsWith("video/"),
+      );
+      setDropped((prev) => ({
+        file: media || null,
+        error: media
+          ? ""
+          : `${files[0]?.name || "That file"} is not an audio or video file.`,
+        nonce: (prev?.nonce || 0) + 1,
+      }));
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.title = recording ? "● Recording – Meetings" : "Meetings";
+    document
+      .getElementById("favicon")
+      ?.setAttribute("href", recording ? RECORDING_ICON : IDLE_ICON);
+  }, [recording]);
+
   const handleToggleRecording = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -270,6 +396,7 @@ export function App() {
         recordingRef.current = false;
         setRecording(false);
         setLevels(null);
+        setTitle("");
         await loadMeetings();
         openMeetingHash(r.meeting.id);
       } else {
@@ -286,6 +413,10 @@ export function App() {
         recordingRef.current = true;
         setRecording(true);
         setRecTitle(r.meeting.title || r.meeting.id);
+        setTitle(r.meeting.title || "");
+        liveTitleRef.current = r.meeting.title || "";
+        recIdRef.current = r.meeting.id;
+        setRecMode(r.meeting.mode);
         setElapsed(0);
         setElapsedAt(performance.now());
         loadMeetings();
@@ -299,6 +430,31 @@ export function App() {
     }
   };
 
+  const handleCommitLiveTitle = async () => {
+    const id = recIdRef.current;
+    const next = titleRef.current.trim();
+    if (!recordingRef.current || !id || renamingRef.current) return;
+    if (next === liveTitleRef.current) return;
+    renamingRef.current = true;
+    setRecError("");
+    try {
+      const r = await api<MeetingDetail>(
+        "POST",
+        `/api/meetings/${encodeURIComponent(id)}/title`,
+        { title: next },
+      );
+      liveTitleRef.current = r.meeting.title || "";
+      setTitle(r.meeting.title || "");
+      setRecTitle(r.meeting.title || r.meeting.id);
+      loadMeetings();
+      if (currentIdRef.current === id) showMeeting(id);
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : String(e));
+    } finally {
+      renamingRef.current = false;
+    }
+  };
+
   const handleImported = async (meetingId: string) => {
     await loadMeetings();
     openMeetingHash(meetingId);
@@ -309,6 +465,7 @@ export function App() {
       <TopDock
         recording={recording}
         busy={busy}
+        offline={offline}
         recTitle={recTitle}
         elapsed={elapsed}
         elapsedAt={elapsedAt}
@@ -316,8 +473,10 @@ export function App() {
         recError={recError}
         title={title}
         onTitleChange={setTitle}
-        mode={mode}
-        onModeChange={setMode}
+        onCommitTitle={handleCommitLiveTitle}
+        onRevertTitle={() => setTitle(liveTitleRef.current)}
+        mode={recording && recMode ? recMode : mode}
+        onModeChange={handleModeChange}
         language={language}
         onLanguageChange={setLanguage}
         model={model}
@@ -325,7 +484,13 @@ export function App() {
         models={models}
         onToggleRecording={handleToggleRecording}
         onImported={handleImported}
+        dropped={dropped}
       />
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <p>Drop to import</p>
+        </div>
+      )}
 
       <main>
         <Sidebar
@@ -338,8 +503,10 @@ export function App() {
 
         <MeetingView
           currentId={currentId}
+          hasMeetings={meetings.length > 0}
           detail={detail}
           detailAt={detailAt}
+          focus={focus}
           error={viewError}
           models={models}
           onDetailUpdated={(updated) => {

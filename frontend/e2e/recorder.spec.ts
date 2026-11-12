@@ -10,15 +10,15 @@ test.describe("Meetings Recorder E2E", () => {
     await expect(page.locator("#status")).toHaveText("Not recording");
     await expect(page.locator("#no-meetings")).toBeVisible();
     await expect(page.locator("#view .empty-state")).toHaveText(
-      "Select a meeting to see its transcript.",
+      /^No meetings yet\./,
     );
 
     const settingsSummary = page.locator("#settings-summary");
-    await expect(settingsSummary).toContainText("Mic · Auto · large-v3");
+    await expect(settingsSummary).toContainText("Auto · large-v3");
     await settingsSummary.click();
     await expect(page.locator("#settings-drawer")).toHaveAttribute("open", "");
     await page.locator("#language").selectOption("th");
-    await expect(settingsSummary).toContainText("Mic · ไทย · large-v3");
+    await expect(settingsSummary).toContainText("ไทย · large-v3");
 
     // Escape closes the open popover
     await page.keyboard.press("Escape");
@@ -57,19 +57,21 @@ test.describe("Meetings Recorder E2E", () => {
     await filterGroup.getByRole("button", { name: "All speakers" }).click();
     await expect(page.locator("ol.transcript li:not([hidden])")).toHaveCount(3);
 
-    // 5. Rename Speaker 1 -> Somchai
-    page.once("dialog", (dialog) => dialog.accept("Somchai"));
+    // 5. Rename Speaker 1 -> Somchai in the speaker's popover
     await page
       .locator("ol.transcript button.spk", { hasText: "Speaker 1" })
       .first()
       .click();
+    await page.getByRole("textbox", { name: "Name for Speaker 1" }).fill("Somchai");
+    await page.keyboard.press("Enter");
     await expect(
       page.locator("ol.transcript button.spk", { hasText: "Somchai" }).first(),
     ).toBeVisible();
 
-    // 6. Rename meeting title -> Q4 Budget Review
-    page.once("dialog", (dialog) => dialog.accept("Q4 Budget Review"));
+    // 6. Rename meeting title -> Q4 Budget Review in place
     await page.locator("button.title-edit").click();
+    await page.getByRole("textbox", { name: "Meeting title" }).fill("Q4 Budget Review");
+    await page.keyboard.press("Enter");
     await expect(page.locator("button.title-edit")).toHaveText("Q4 Budget Review");
     await expect(page.locator("#meetings")).toContainText("Q4 Budget Review");
 
@@ -80,14 +82,64 @@ test.describe("Meetings Recorder E2E", () => {
     await expect(page.locator("#hits .hit")).toContainText(
       "Let's start with the budget.",
     );
+    await expect(page.locator("#hits .hit mark")).toHaveText("budget");
+    await page.locator("#hits .hit").click();
+    await expect(page.locator("ol.transcript .seg.focus")).toContainText(
+      "Let's start with the budget.",
+    );
 
     // 8. Delete the meeting
-    await page.locator("details.secondary-drawer summary").click();
-    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("details.meeting-actions summary").click();
     await page.locator("button.danger", { hasText: "Delete meeting" }).click();
+    await expect(page.locator(".confirm-delete")).toContainText(
+      'Delete "Q4 Budget Review"?',
+    );
+    await page.locator(".confirm-delete button.danger").click();
     await expect(page.locator("#no-meetings")).toBeVisible();
     await expect(page.locator("#view .empty-state")).toHaveText(
-      "Select a meeting to see its transcript.",
+      /^No meetings yet\./,
     );
   });
+
+  test("imports an audio file chosen in the import panel", async ({ page }) => {
+    await page.goto("/");
+    await page.locator("#import-drawer summary").click();
+    await page.locator("#import-file").setInputFiles({
+      name: "standup.wav",
+      mimeType: "audio/wav",
+      buffer: silentWav(1),
+    });
+    await expect(page.locator("#import-title")).toHaveAttribute("placeholder", "standup");
+    await page.locator("#import-title").fill("E2E Import");
+    await page.locator("#import").click();
+
+    await expect(page.locator("button.title-edit")).toHaveText("E2E Import");
+    await expect(page.locator("ol.transcript")).toBeVisible({ timeout: 20_000 });
+
+    // leave the service empty for the other test
+    await page.locator("details.meeting-actions summary").click();
+    await page.locator("button.danger", { hasText: "Delete meeting" }).click();
+    await page.locator(".confirm-delete button.danger").click();
+    await expect(page.locator("#no-meetings")).toBeVisible();
+  });
 });
+
+/** A mono 16 kHz 16-bit WAV of silence. */
+function silentWav(seconds: number): Buffer {
+  const rate = 16000;
+  const data = rate * seconds * 2;
+  const b = Buffer.alloc(44 + data);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + data, 4);
+  b.write("WAVEfmt ", 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(data, 40);
+  return b;
+}

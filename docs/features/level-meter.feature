@@ -14,7 +14,8 @@ Feature: Live sound level while recording
   Scenario: A silent track is easy to spot
     Given a recording is active
     And the microphone has been silent for 10 seconds
-    Then its meter says "no sound"
+    Then a warning "⚠ Microphone: no sound" appears beside its meter
+    And screen readers announce it once
 
   Scenario: No levels when idle
     Given no recording is active

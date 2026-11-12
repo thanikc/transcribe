@@ -85,7 +85,7 @@ describe("App component", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Not recording");
     expect(
-      screen.getByText("Select a meeting to see its transcript."),
+      await screen.findByText("Select a meeting to see its transcript."),
     ).toBeInTheDocument();
 
     // Wait for meetings list and version to load

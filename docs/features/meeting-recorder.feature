@@ -77,9 +77,13 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Rename a speaker on the web page
     Given a transcribed meeting with "Speaker 2" in its transcript
-    When I click "Speaker 2" and enter "Somchai"
+    When I click "Speaker 2", type "Somchai" in the box that opens under it and press Enter
     Then every "Speaker 2" line now shows "Somchai"
     And get_transcript in Claude Desktop shows "Somchai"
+    When I click "Somchai" and press "Reset to Speaker 2"
+    Then every line shows "Speaker 2" again
+    When I click "Speaker 2", type a name and press Escape
+    Then nothing is renamed
 
   Scenario: Claude names a speaker from context
     When Claude calls rename_speaker for "Speaker 1" with name "Khun Nok"
@@ -192,6 +196,13 @@ Feature: Record, transcribe and read local meetings
     When I list meetings
     Then I see the 14:30 meeting first, then the 09:00 meeting, each with title, start time, duration, audio size and status
 
+  Scenario: The web page's meetings list is grouped by date and quiet about finished meetings
+    Given meetings from today, yesterday, Monday of this week and last month
+    When I open the web page
+    Then they are listed under "Today", "Yesterday", "Earlier this week" and the month's name, newest first
+    And today's and yesterday's rows show the start time, older ones the short date and time, then the duration
+    And a transcribed meeting shows no badge, while a recording, transcribing or failed one does
+
   Scenario: A corrupt meeting folder does not break listing
     Given one meeting folder has an unreadable meeting.json
     When I list meetings
@@ -221,13 +232,32 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Start and stop a recording from the web page
     Given the web page shows "Not recording"
-    When I enter title "Design review", pick "mic+system" and press Start
+    When I enter title "Design review", choose "Online call" on the mode switch next to Start and press Start
     Then the page shows "● Recording" with an elapsed time that increases
     When I press Stop
     Then the page shows "Not recording"
     And the meeting appears at the top of the list as "transcribing"
     And the page opens that meeting showing "Transcribing…"
     And when transcription finishes, its transcript appears and its status shows "transcribed", without a page reload
+
+  Scenario: The page remembers the mode and locks it while recording
+    Given I chose "Online call" on the mode switch
+    When I open the web page again
+    Then "Online call" is still chosen
+    When a recording in "mic" mode is active
+    Then the mode switch shows "In person" and cannot be changed until it stops
+
+  Scenario: The browser tab shows that it is recording
+    Given a recording is active
+    Then the page's tab title starts with "●" and its icon has a red dot
+    When the recording stops
+    Then the tab title is "Meetings" again with the plain icon
+
+  Scenario: A hidden tab notices a recording stopped elsewhere
+    Given the web page is in a background tab while a recording is active
+    When Claude stops the recording
+    Then within about 5 seconds the tab title no longer says it is recording
+    And while nothing is recording, the hidden tab asks the service nothing
 
   Scenario: The web page reflects a recording started elsewhere
     Given Claude started a recording "Standup"
@@ -238,11 +268,39 @@ Feature: Record, transcribe and read local meetings
     Given a transcribed "mic+system" meeting
     When I open it on the web page
     Then I see its transcript with timestamps and speakers
-    And an audio player for the mic track and one for the system track
+    And one audio player for both the mic and the system track
+
+  Scenario: The transcript reads as speaker turns
+    Given a transcribed meeting where "Speaker 1" says two lines in a row, then "Speaker 2" answers
+    When I open it on the web page
+    Then "Speaker 1"'s two lines are one turn with the speaker named once, followed by a turn for "Speaker 2"
+
+  Scenario: A long monologue is broken into paragraphs
+    Given one speaker talks for three minutes without a pause over 2 seconds
+    Then their lines are shown as turns of at most 60 seconds each
+    And a pause over 2 seconds also starts a new paragraph
+
+  Scenario: Filtering by speaker hides whole turns
+    When I filter the transcript by "Speaker 2"
+    Then only "Speaker 2"'s turns are shown
+
+  Scenario: First run says how to make a meeting
+    Given there are no meetings yet
+    When I open the web page
+    Then it says "No meetings yet. Press Start recording, or use Import audio to transcribe a file you already have."
+
+  Scenario: A slow meeting load says it is loading
+    When I open a meeting that takes a moment to load
+    Then the meeting view says "Loading…" until it arrives
+
+  Scenario: A speaker keeps their colour
+    Given a transcribed meeting with "Speaker 1" and "Speaker 2"
+    When I open it, open another meeting, and open it again
+    Then "Speaker 1" has the same colour both times, the first colour of the palette
 
   Scenario: Audio keeps playing while the meeting is transcribing
     Given a meeting with status "transcribing"
-    And I am playing its mic track on the web page
+    And I am playing its audio on the web page
     When the page refreshes the transcription progress
     Then the audio keeps playing without restarting or flickering
 
@@ -259,8 +317,16 @@ Feature: Record, transcribe and read local meetings
 
   Scenario: Re-transcribe a failed meeting from the web page
     Given a meeting with status "failed"
-    When I open it and press "Transcribe again"
+    When I open it and press "Transcribe again…" beside the failure message
+    Then the meeting's Actions menu opens
+    When I press "Transcribe again" in it
     Then its status changes to "transcribing"
+
+  Scenario: Meeting actions are in the header
+    Given I am viewing a transcribed, failed or transcribing meeting
+    Then an Actions menu beside its title offers "Transcribe again" with a language and speech model picker
+    And "Delete meeting" only for a transcribed or failed meeting
+    And a meeting that is still recording has no Actions menu
 
   Scenario: Another website cannot start a recording
     When a request to start a recording arrives with Origin "https://evil.example"
@@ -288,3 +354,11 @@ Feature: Record, transcribe and read local meetings
     Given the recorder service is not running
     When Claude calls start_recording
     Then the reply says the recorder service is not running and to start it with "transcribe serve"
+
+  Scenario: The web page loses the recorder service
+    Given the web page is open
+    When three status checks in a row get no answer from the recorder service
+    Then the page says "Disconnected" and that it can't reach the recorder
+    And the Start button is disabled and the elapsed time stops
+    When the service answers again
+    Then the message goes away and the meetings list and speech models are reloaded

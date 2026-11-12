@@ -8,6 +8,30 @@ Feature: Import an audio file
     And its duration is the file's length
     And it is transcribed and its speakers detected like an in-person meeting
 
+  Scenario: The import panel has its own title
+    Given I typed "Design review" as the next recording's title
+    When I choose "standup.m4a" under "Import audio file" and leave its Title empty
+    Then the Title field suggests "standup"
+    And the panel says it is transcribed as "Auto · large-v3" and that these change in Settings
+    And the imported meeting is called "standup", not "Design review"
+
+  Scenario: Drop a file on the page to import it
+    When I drag "standup.m4a" over the web page
+    Then the page says "Drop to import"
+    When I drop it
+    Then the import panel opens with "standup.m4a" chosen, ready to import
+
+  Scenario: Dropping a file that is neither audio nor video
+    When I drop "notes.txt" on the web page
+    Then the import panel says "notes.txt is not an audio or video file."
+    And nothing is imported
+
+  Scenario: The page shows the upload's progress
+    When I import a large file from the page
+    Then the panel shows a progress bar and "Uploading 43%" as the bytes go up
+    And "Converting…" once they are all sent, until the meeting opens
+    And the panel cannot be closed until the import is done
+
   Scenario: Import from the CLI
     When I run "transcribe import standup.m4a --language th"
     Then a meeting titled "standup" is created and its id printed
