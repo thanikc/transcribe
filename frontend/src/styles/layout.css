@@ -164,8 +164,14 @@ h1 {
   transition: width 0.15s linear;
 }
 #meters .quiet {
-  color: var(--danger);
+  padding: 2px var(--sp-2);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Popover Drawers in Top Dock */

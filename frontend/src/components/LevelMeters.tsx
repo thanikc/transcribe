@@ -42,9 +42,11 @@ export function LevelMeters({ levels }: LevelMetersProps) {
             <div className="bar" aria-hidden="true">
               <span style={{ width: `${Math.round(fill(level) * 100)}%` }} />
             </div>
-            <span className={silent ? "quiet" : "muted"}>
-              {silent ? "no sound" : ""}
-            </span>
+            {silent && (
+              <span className="quiet" role="status">
+                {`⚠ ${TRACK_LABEL[track] || track}: no sound`}
+              </span>
+            )}
           </span>
         );
       })}

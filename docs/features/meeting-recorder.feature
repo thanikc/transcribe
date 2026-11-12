@@ -240,6 +240,18 @@ Feature: Record, transcribe and read local meetings
     When a recording in "mic" mode is active
     Then the mode switch shows "In person" and cannot be changed until it stops
 
+  Scenario: The browser tab shows that it is recording
+    Given a recording is active
+    Then the page's tab title starts with "●" and its icon has a red dot
+    When the recording stops
+    Then the tab title is "Meetings" again with the plain icon
+
+  Scenario: A hidden tab notices a recording stopped elsewhere
+    Given the web page is in a background tab while a recording is active
+    When Claude stops the recording
+    Then within about 5 seconds the tab title no longer says it is recording
+    And while nothing is recording, the hidden tab asks the service nothing
+
   Scenario: The web page reflects a recording started elsewhere
     Given Claude started a recording "Standup"
     When I open the web page

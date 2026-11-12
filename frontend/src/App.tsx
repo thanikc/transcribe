@@ -3,6 +3,7 @@ import { api } from "./api";
 import { MeetingView } from "./components/MeetingView";
 import { Sidebar } from "./components/Sidebar";
 import { TopDock } from "./components/TopDock";
+import { IDLE_ICON, RECORDING_ICON } from "./favicon";
 import type {
   Meeting,
   MeetingDetail,
@@ -28,6 +29,8 @@ function savedMode(): string {
   }
 }
 const OFFLINE_AFTER = 3;
+// a hidden tab still checks this often while it last saw a recording, so its title doesn't lie
+const HIDDEN_POLL_MS = 5000;
 
 export const inProgress = (d: MeetingDetail | null): boolean =>
   !!d &&
@@ -292,8 +295,17 @@ export function App() {
   }, [pollStatus, loadMeetings, showMeeting]);
 
   useEffect(() => {
+    let lastHiddenPoll = 0;
     const statusInterval = setInterval(() => {
-      if (!document.hidden) pollStatus();
+      if (!document.hidden) {
+        pollStatus();
+      } else if (
+        recordingRef.current &&
+        Date.now() - lastHiddenPoll >= HIDDEN_POLL_MS
+      ) {
+        lastHiddenPoll = Date.now();
+        pollStatus();
+      }
     }, 1000);
     const listInterval = setInterval(() => {
       if (document.hidden) return;
@@ -310,6 +322,13 @@ export function App() {
       clearInterval(listInterval);
     };
   }, [pollStatus, loadMeetings]);
+
+  useEffect(() => {
+    document.title = recording ? "● Recording – Meetings" : "Meetings";
+    document
+      .getElementById("favicon")
+      ?.setAttribute("href", recording ? RECORDING_ICON : IDLE_ICON);
+  }, [recording]);
 
   const handleToggleRecording = async () => {
     if (busyRef.current) return;
