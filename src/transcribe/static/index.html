@@ -79,6 +79,8 @@ ul.list li + li { margin-top: 4px; }
 button.icon { display: inline-flex; padding: 6px; }
 .again { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border); }
 .hit { display: block; width: 100%; text-align: left; margin-top: 4px; }
+footer { grid-column: 1 / -1; color: var(--muted); font-size: .85rem; }
+footer button { font-size: .85rem; padding: 3px 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -132,6 +134,11 @@ button.icon { display: inline-flex; padding: 6px; }
     <h2 id="view-h" class="sr-only">Meeting</h2>
     <div id="view"><p class="muted">Select a meeting to see its transcript.</p></div>
   </section>
+
+  <footer>
+    <p id="version" aria-live="polite" style="margin:0"></p>
+    <div id="update-error" class="err" role="alert"></div>
+  </footer>
 </main>
 
 <script type="module" src="/static/js/main.js"></script>

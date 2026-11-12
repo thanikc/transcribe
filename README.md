@@ -35,7 +35,7 @@ Right-click the icon for:
 - **Quit**: stops the recorder. A recording that's running is stopped first. A meeting still being transcribed
   shows as failed ("interrupted") next time, and **Transcribe again** finishes it.
 
-To upgrade, run a newer installer. To uninstall, use Windows Settings → Apps. Your recordings in `~/Meetings` are
+When a new version is released, the recorder page and the tray icon offer to download and install it. You can also upgrade by running a newer installer by hand. To uninstall, use Windows Settings → Apps. Your recordings in `~/Meetings` are
 kept, and so is the Whisper model (`%USERPROFILE%\.cache\huggingface`, 1.6–3 GB). Delete that folder to free the space.
 
 ## Developer setup (Windows)

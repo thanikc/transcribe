@@ -61,5 +61,5 @@ that exist, and the icon image.
 - The installer's choice is the default model. To change the default later, run the installer again and pick the other one. Changing `TRANSCRIBE_MODEL` by hand works too, but then the new model downloads on first use. The page can also pick the model per meeting (see `meeting-recorder.md`).
 - The installer offers only these two models. Others (e.g. `medium`) are available through `TRANSCRIBE_MODEL`.
 - No code signing. Windows SmartScreen shows "Windows protected your PC" → *More info* → *Run anyway*.
-- No auto-update. To upgrade, run a newer installer over the old one.
+- Updates are offered and installed from the page or the tray (see `app-update.md`), or by running a newer installer over the old one.
 - GPU (CUDA) libraries are not bundled. Transcription runs on CPU unless CUDA is already installed.

@@ -231,12 +231,17 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
     class Icon:
         def __init__(self, name, icon, title, menu) -> None:
             self.icon, self.title, self.menu = icon, title, menu
+            self.menu_updates = 0
+
+        def update_menu(self) -> None:
+            self.menu_updates += 1
 
         def run(self, setup) -> None:
             setup(self)
-            assert [i.text for i in self.menu.items if i is not FakePystray.Menu.SEPARATOR] == [
+            shown = [i for i in self.menu.items if i is not FakePystray.Menu.SEPARATOR and i.visible(i)]
+            assert [i.text(i) if callable(i.text) else i.text for i in shown] == [
                 "Open recorder", "Start at login", "Connect to Claude Desktop",
-                "Open log", "Open meetings folder", "Quit",
+                "Open log", "Open meetings folder", "Version dev", "Quit",
             ]
             api = httpx.Client(base_url=f"http://127.0.0.1:{port}")
             api.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic"}).raise_for_status()
@@ -244,6 +249,9 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
             while self.title != "Recording: Weekly sync" and time.monotonic() < deadline:
                 time.sleep(0.05)
             seen["title"] = self.title
+            install = next(i for i in self.menu.items if callable(getattr(i, "text", None)))
+            seen["install enabled while recording"] = install.enabled(install)
+            seen["menu refreshed"] = self.menu_updates > 0
             quit_item = next(i for i in self.menu.items if getattr(i, "text", "") == "Quit")
             quit_item.action(self, quit_item)
 
@@ -258,8 +266,10 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
                 self.items = items
 
         class MenuItem:
-            def __init__(self, text, action, default=False, checked=None) -> None:
+            def __init__(self, text, action, default=False, checked=None, enabled=True, visible=True) -> None:
                 self.text, self.action = text, action
+                self.visible = visible if callable(visible) else lambda item: visible
+                self.enabled = enabled if callable(enabled) else lambda item: enabled
 
     fake = FakePystray("pystray")
     fake.Icon = Icon
@@ -267,7 +277,9 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
 
     tray.main()
 
-    assert seen == {"title": "Recording: Weekly sync", "stopped": True}
+    assert seen == {
+        "title": "Recording: Weekly sync", "install enabled while recording": False, "menu refreshed": True, "stopped": True,
+    }
     assert opened == [f"http://127.0.0.1:{port}"]
     assert recorder.status() == {"recording": False}
     assert (tmp_path / "Local" / "transcribe" / "logs" / "transcribe.log").exists()

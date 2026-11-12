@@ -21,6 +21,7 @@ from transcribe.client import (
     transcript_text,
 )
 from transcribe.domain import LANGUAGES, MODES
+from transcribe.updates import UpdateService, installed_version
 
 if TYPE_CHECKING:
     from transcribe.recorder import Recorder
@@ -105,7 +106,9 @@ def _serve(port: int, fake: bool) -> int:
         print(f'marked interrupted recording "{meeting_id}" as failed (its audio can still be transcribed)')
     print(f"Data directory: {data_dir}")
     print(f"Recorder service: http://127.0.0.1:{port}")
-    uvicorn.run(create_app(recorder), host="127.0.0.1", port=port, log_level="warning")
+    updates = UpdateService()
+    updates.start_checking()  # a git checkout (version "dev") never checks
+    uvicorn.run(create_app(recorder, updates=updates), host="127.0.0.1", port=port, log_level="warning")
     return 0
 
 
@@ -146,6 +149,7 @@ def _record(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="transcribe", description="Local meeting recorder and transcriber.")
+    parser.add_argument("--version", action="version", version=f"transcribe {installed_version()}")
     commands = parser.add_subparsers(dest="command", required=True)
     serve = commands.add_parser("serve", help="run the recorder service and web page")
     serve.add_argument("--port", type=int, default=_port())

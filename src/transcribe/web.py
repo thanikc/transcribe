@@ -36,6 +36,7 @@ from transcribe.domain import (
     timestamp,
 )
 from transcribe.recorder import CaptureError, Recorder
+from transcribe.updates import UpdateError, UpdateService
 
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
@@ -55,6 +56,7 @@ _STATUS_CODES: tuple[tuple[type[DomainError], int], ...] = (
     (MeetingBusy, 409),
     (TranscriptNotReady, 409),
     (CaptureError, 503),
+    (UpdateError, 409),
 )
 
 
@@ -85,7 +87,10 @@ async def _body(request: Request, required: tuple[str, ...] = (), optional: tupl
     return data
 
 
-def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> Starlette:
+def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updates: UpdateService | None = None) -> Starlette:
+    # Without one (tests, `serve`), the version comes from the package and no update is ever offered.
+    updates = updates or UpdateService(can_install=False)
+
     def _meeting_json(meeting: Meeting) -> dict:
         return {
             **meeting.to_dict(),
@@ -189,6 +194,16 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         ]
         return JSONResponse({"hits": hits})
 
+    async def version(request: Request) -> Response:
+        return JSONResponse(updates.state())
+
+    def install_update(request: Request) -> Response:
+        # Downloads ~30 MB, so it runs in the thread pool like the other blocking handlers.
+        blocker = recorder.update_blocker()
+        if blocker:
+            raise MeetingBusy(blocker)
+        return JSONResponse({"launched": updates.install()})
+
     async def not_found(request: Request, exc: Exception) -> Response:
         return _error("not found", 404)
 
@@ -216,6 +231,8 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),
         Route("/api/models", models),
         Route("/api/search", search),
+        Route("/api/version", version),
+        Route("/api/update/install", install_update, methods=["POST"]),
     ]
     return Starlette(
         routes=routes,

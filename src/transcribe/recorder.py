@@ -300,6 +300,14 @@ class Recorder:
     def search(self, query: str) -> list[SearchHit]:
         return search_transcripts(self.store.transcripts(mentioning=query), query)
 
+    def update_blocker(self) -> str | None:
+        """Why an update can't be installed now: the installer stops the app, which would cut off this work."""
+        if self._active is not None:
+            return "stop the recording before installing the update"
+        if any(m.status == Status.TRANSCRIBING for m in self.store.list()):
+            return "wait for the transcription to finish before installing the update"
+        return None
+
     def recover_interrupted(self) -> list[str]:
         with self._lock:
             active_id = self._active[0].id if self._active else None

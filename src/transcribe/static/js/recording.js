@@ -4,6 +4,7 @@ import { $, api, mmss } from "./util.js";
 import { state } from "./state.js";
 import { loadMeetings } from "./list.js";
 import { openMeeting } from "./nav.js";
+import { renderUpdateButton } from "./version.js";
 
 export function renderStatus() {
   const s = $("status"), btn = $("toggle");
@@ -20,6 +21,7 @@ export function renderStatus() {
   btn.textContent = state.recording ? "Stop recording" : "Start recording";
   btn.className = state.recording ? "stop" : "primary";
   btn.disabled = state.busy;
+  renderUpdateButton();
 }
 
 function showRecError(msg) { $("rec-error").textContent = msg || ""; }

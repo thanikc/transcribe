@@ -32,6 +32,7 @@ src/transcribe/
   client.py      HTTP client + text formatting shared by the MCP shim and the CLI
   mcp_server.py  stdio MCP tools -> client
   cli.py         serve | mcp | record | list | show | search | delete | download-models
+  updates.py     installed version (transcribe/VERSION, stamped by the installer build), GitHub release check, verified installer download
   desktop.py     pure tray logic: icon state/image, Claude Desktop config merge, single-instance check
   tray.py        Windows tray app (pystray, winreg), runs the service in-process; `transcribe-tray` gui-script
   devfakes.py    fakes for `serve --fake`
