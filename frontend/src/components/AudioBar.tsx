@@ -386,19 +386,22 @@ export function AudioBar({
               <option key={r} value={r}>{`${r}×`}</option>
             ))}
           </select>
-          {tracks.length > 1 &&
-            tracks.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className="filter-pill mute"
-                aria-pressed={!muted[t]}
-                title={muted[t] ? `Unmute ${TRACK_LABEL[t] || t}` : `Mute ${TRACK_LABEL[t] || t}`}
-                onClick={() => setMuted((m) => ({ ...m, [t]: !m[t] }))}
-              >
-                {TRACK_LABEL[t] || t}
-              </button>
-            ))}
+          {tracks.length > 1 && (
+            <span className="mutes">
+              {tracks.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="filter-pill mute"
+                  aria-pressed={!muted[t]}
+                  title={muted[t] ? `Unmute ${TRACK_LABEL[t] || t}` : `Mute ${TRACK_LABEL[t] || t}`}
+                  onClick={() => setMuted((m) => ({ ...m, [t]: !m[t] }))}
+                >
+                  {TRACK_LABEL[t] || t}
+                </button>
+              ))}
+            </span>
+          )}
         </div>
       )}
 

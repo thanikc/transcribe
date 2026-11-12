@@ -367,7 +367,7 @@ button.icon {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex: 1 1 auto;
+  flex: 1 1 0;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -376,8 +376,8 @@ button.icon {
   justify-content: center;
 }
 .player .seek {
-  flex: 1 1 160px;
-  min-width: 120px;
+  flex: 1 1 120px;
+  min-width: 80px;
   accent-color: var(--accent);
 }
 .player .time {
@@ -391,6 +391,10 @@ button.icon {
   width: auto;
   height: 28px;
   font-size: var(--text-xs);
+}
+.player .mutes {
+  display: inline-flex;
+  gap: var(--sp-1);
 }
 .player .mute[aria-pressed="false"] {
   text-decoration: line-through;
