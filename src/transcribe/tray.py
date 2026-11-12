@@ -169,6 +169,23 @@ def main() -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         os.startfile(data_dir)
 
+    def recording_action(icon, action, failure: str) -> None:
+        def work() -> None:  # opening or closing audio devices takes seconds; the menu must not hang meanwhile
+            try:
+                action()
+            except Exception as error:
+                log.exception(failure)
+                icon.notify(f"{failure}: {error}", "Transcribe")
+            icon.update_menu()
+
+        threading.Thread(target=work, name="tray-recording", daemon=True).start()
+
+    def start_recording(mode: str):
+        return lambda icon, item: recording_action(icon, lambda: recorder.start("", mode), "Couldn't start recording")
+
+    def stop_recording(icon, item) -> None:
+        recording_action(icon, recorder.stop, "Couldn't stop recording")
+
     def edit_vocabulary(icon, item) -> None:
         os.startfile(recorder.store.vocabulary_file())
 
@@ -223,8 +240,14 @@ def main() -> None:
         if not background:
             open_page()
 
+    def idle(item) -> bool:
+        return not recorder.status()["recording"]
+
     menu = pystray.Menu(
         pystray.MenuItem("Open recorder", open_page, default=True),
+        pystray.MenuItem("Start recording (online call)", start_recording("mic+system"), visible=idle),
+        pystray.MenuItem("Start recording (in person)", start_recording("mic"), visible=idle),
+        pystray.MenuItem("Stop recording", stop_recording, visible=lambda item: not idle(item)),
         pystray.MenuItem("Start at login", toggle_startup, checked=lambda item: startup.enabled()),
         pystray.MenuItem("Connect to Claude Desktop", connect),
         pystray.Menu.SEPARATOR,

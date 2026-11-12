@@ -232,17 +232,47 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
         def __init__(self, name, icon, title, menu) -> None:
             self.icon, self.title, self.menu = icon, title, menu
             self.menu_updates = 0
+            self.notes: list[str] = []
+
+        def notify(self, message, title) -> None:
+            self.notes.append(message)
+
+        def shown(self) -> list[str]:
+            items = [i for i in self.menu.items if i is not FakePystray.Menu.SEPARATOR and i.visible(i)]
+            return [i.text(i) if callable(i.text) else i.text for i in items]
+
+        def choose(self, text) -> None:
+            item = next(i for i in self.menu.items if getattr(i, "text", None) == text)
+            item.action(self, item)
+
+        def wait_until(self, done) -> None:
+            deadline = time.monotonic() + 3
+            while not done() and time.monotonic() < deadline:
+                time.sleep(0.02)
 
         def update_menu(self) -> None:
             self.menu_updates += 1
 
         def run(self, setup) -> None:
             setup(self)
-            shown = [i for i in self.menu.items if i is not FakePystray.Menu.SEPARATOR and i.visible(i)]
-            assert [i.text(i) if callable(i.text) else i.text for i in shown] == [
-                "Open recorder", "Start at login", "Connect to Claude Desktop",
+            assert self.shown() == [
+                "Open recorder", "Start recording (online call)", "Start recording (in person)",
+                "Start at login", "Connect to Claude Desktop",
                 "Open log", "Open meetings folder", "Edit vocabulary", "Version dev", "Quit",
             ]
+            self.choose("Start recording (in person)")
+            self.wait_until(lambda: recorder.status()["recording"])
+            seen["started from the tray"] = (recorder.status()["mode"], recorder.status()["title"])
+            assert self.shown()[:2] == ["Open recorder", "Stop recording"]
+            self.choose("Stop recording")
+            self.wait_until(lambda: not recorder.status()["recording"])
+            seen["stopped from the tray"] = not recorder.status()["recording"]
+            refuse = recorder.capture.start
+            recorder.capture.start = lambda paths: (_ for _ in ()).throw(OSError("no microphone"))
+            self.choose("Start recording (online call)")
+            self.wait_until(lambda: self.notes)
+            seen["device error"] = self.notes
+            recorder.capture.start = refuse
             api = httpx.Client(base_url=f"http://127.0.0.1:{port}")
             api.post("/api/recordings/start", json={"title": "Weekly sync", "mode": "mic"}).raise_for_status()
             deadline = time.monotonic() + 3
@@ -278,6 +308,9 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
     tray.main()
 
     assert seen == {
+        "started from the tray": ("mic", ""),
+        "stopped from the tray": True,
+        "device error": ["Couldn't start recording: no microphone"],
         "title": "Recording: Weekly sync", "install enabled while recording": False, "menu refreshed": True, "stopped": True,
     }
     assert opened == [f"http://127.0.0.1:{port}"]
