@@ -287,6 +287,17 @@ class Recorder:
             self.store.save(meeting)
             return meeting
 
+    def rename(self, meeting_id: str, title: str) -> Meeting:
+        """Give a meeting a new title; its id stays. Kept if it is recording or being transcribed."""
+        with self._lock:
+            meeting = replace(self.store.get(meeting_id), title=title.strip())
+            if self._active is not None and self._active[0].id == meeting_id:
+                # stop() saves the in-memory meeting, which would otherwise bring the old title back.
+                meeting = replace(self._active[0], title=meeting.title)
+                self._active = (meeting, self._active[1])
+            self.store.save(meeting)
+            return meeting
+
     def delete(self, meeting_id: str) -> None:
         # Locked so a recording or transcription can't start on it mid-delete.
         with self._lock:
@@ -377,4 +388,6 @@ class Recorder:
         }
         self.store.save_transcript(meeting.id, merge_transcript(labelled))
         done = transition(meeting, Status.TRANSCRIBED)
-        self.store.save(replace(done, detected_languages=detected, warnings=warnings, model=model))
+        with self._lock:  # a rename made while this ran must not be undone
+            title = self.store.get(meeting.id).title
+            self.store.save(replace(done, title=title, detected_languages=detected, warnings=warnings, model=model))

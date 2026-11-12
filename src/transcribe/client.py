@@ -62,6 +62,9 @@ class ServiceClient:
     def rename_speaker(self, meeting_id: str, speaker: str, name: str) -> dict:
         return self._post(f"/api/meetings/{quote(meeting_id, safe='')}/speakers", {"speaker": speaker, "name": name})
 
+    def rename(self, meeting_id: str, title: str) -> dict:
+        return self._post(f"/api/meetings/{quote(meeting_id, safe='')}/title", {"title": title})
+
     def search(self, query: str) -> list[dict]:
         return self._call("GET", "/api/search", params={"q": query})["hits"]
 

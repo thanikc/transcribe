@@ -96,7 +96,8 @@ export function renderMeeting() {
   const head = document.createDocumentFragment(), tail = document.createDocumentFragment();
   let view = head;
   const id = m.id;
-  view.append(el("h3", { style: "margin:0;font-size:1.25rem;overflow-wrap:anywhere" }, document.createTextNode(m.title || m.id), badge(m.status)));
+  const titleBtn = el("button", { type: "button", class: "title-edit", title: "Rename this meeting", text: m.title || m.id, onclick: () => renameMeeting(m.title) });
+  view.append(el("h3", { style: "margin:0;font-size:1.25rem;overflow-wrap:anywhere" }, titleBtn, badge(m.status)));
 
   let lang = LANG_LABEL[m.language] || m.language;
   if (m.language === "auto") {
@@ -194,6 +195,17 @@ export function renderMeeting() {
     if (tracks) live.append(tracks);
     live.append(tail);
   }
+}
+
+async function renameMeeting(current) {
+  const title = prompt("Meeting title (leave empty for none):", current);
+  if (title === null) return;
+  const id = state.currentId;
+  try {
+    const d = await api("POST", `/api/meetings/${encodeURIComponent(id)}/title`, { title });
+    if (id === state.currentId) { state.detail = d; renderMeeting(); }
+    loadMeetings();
+  } catch (e) { alert(e.message); }
 }
 
 async function renameSpeaker(raw, current) {

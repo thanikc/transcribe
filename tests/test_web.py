@@ -509,3 +509,14 @@ def test_install_update_from_a_foreign_origin_is_refused(tmp_path: Path) -> None
     rig.updates.check()
     response = rig.client.post("/api/update/install", json={}, headers={"Origin": "https://evil.example"})
     assert response.status_code == 403 and rig.downloads == 0
+
+
+def test_rename_meeting(rig: Rig) -> None:
+    meeting_id = rig.record()
+    response = rig.client.post(f"/api/meetings/{meeting_id}/title", json={"title": "Budget review"})
+    assert response.status_code == 200
+    assert (response.json()["meeting"]["id"], response.json()["meeting"]["title"]) == (meeting_id, "Budget review")
+    assert response.json()["transcript"] is not None
+    assert rig.client.get("/api/meetings").json()["meetings"][0]["title"] == "Budget review"
+    assert rig.client.post("/api/meetings/nope/title", json={"title": "x"}).status_code == 404
+    assert rig.client.post(f"/api/meetings/{meeting_id}/title", json={}).status_code == 400

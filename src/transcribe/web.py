@@ -177,6 +177,16 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
 
         return JSONResponse(await run_in_threadpool(work))
 
+    async def title(request: Request) -> Response:
+        data = await _body(request, required=("title",))
+        meeting_id = request.path_params["id"]
+
+        def work() -> dict:
+            recorder.rename(meeting_id, data["title"])
+            return detail(meeting_id)
+
+        return JSONResponse(await run_in_threadpool(work))
+
     def search(request: Request) -> Response:
         query = request.query_params.get("q", "").strip()
         if not query:
@@ -229,6 +239,7 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         Route("/api/meetings/{id}/audio/{track}", audio),
         Route("/api/meetings/{id}/transcribe", transcribe, methods=["POST"]),
         Route("/api/meetings/{id}/speakers", speakers, methods=["POST"]),
+        Route("/api/meetings/{id}/title", title, methods=["POST"]),
         Route("/api/models", models),
         Route("/api/search", search),
         Route("/api/version", version),

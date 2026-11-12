@@ -80,6 +80,17 @@ def build_server(client_factory: Callable[[], ServiceClient]) -> MCPServer:
         return forward(rename)
 
     @server.tool()
+    def rename_meeting(meeting_id: str, title: str) -> str:
+        """Give a meeting a new title, for example one that says what it was about once you have
+        read its transcript. The meeting id stays the same. An empty title makes it untitled."""
+
+        def rename(c: ServiceClient) -> str:
+            new = c.rename(meeting_id, title)["meeting"]["title"]
+            return f'"{meeting_id}" is now called "{new}".' if new else f'"{meeting_id}" is now untitled.'
+
+        return forward(rename)
+
+    @server.tool()
     def delete_meeting(meeting_id: str) -> str:
         """Permanently delete a meeting: its audio, transcript and metadata. This cannot be undone,
         so only call it when the user explicitly asks to delete that meeting. A meeting that is

@@ -644,3 +644,29 @@ def test_two_meetings_are_transcribed_one_after_the_other_by_default(tmp_path: P
     assert [recorder.store.get(i).status for i in ids] == [Status.TRANSCRIBED, Status.TRANSCRIBED]
     assert whisper.calls == [("mic", None), ("mic", None)]
     assert overlapped == [False, False]
+
+
+def test_rename_meeting_keeps_its_id(rig: Rig) -> None:
+    meeting = rig.transcribed(rig.record("Weekly sync"))
+    renamed = rig.recorder.rename(meeting.id, "  Budget review ")
+    assert (renamed.id, renamed.title) == (meeting.id, "Budget review")
+    assert rig.store.get(meeting.id).title == "Budget review"
+    assert rig.recorder.rename(meeting.id, "   ").title == ""
+
+
+def test_rename_while_recording_is_kept_after_stop(rig: Rig) -> None:
+    meeting = rig.recorder.start("Untitled call", "mic")
+    rig.recorder.rename(meeting.id, "Customer call")
+    assert rig.recorder.status()["title"] == "Customer call"
+    assert rig.recorder.stop().title == "Customer call"
+
+
+def test_rename_while_transcribing_is_kept_when_done(rig: Rig) -> None:
+    meeting = rig.record("Untitled call")
+    rig.recorder.rename(meeting.id, "Customer call")
+    assert rig.transcribed(meeting).title == "Customer call"
+
+
+def test_rename_unknown_meeting(rig: Rig) -> None:
+    with pytest.raises(MeetingNotFound):
+        rig.recorder.rename("nope", "x")

@@ -1,4 +1,4 @@
-"""Command line: `transcribe serve|mcp|record|list|show|search|delete|download-models`."""
+"""Command line: `transcribe serve|mcp|record|list|show|search|rename|delete|download-models`."""
 
 from __future__ import annotations
 
@@ -164,6 +164,9 @@ def _build_parser() -> argparse.ArgumentParser:
     show.add_argument("id")
     search = commands.add_parser("search", help="search all transcripts")
     search.add_argument("query")
+    rename = commands.add_parser("rename", help="give a meeting a new title (its id stays)")
+    rename.add_argument("id")
+    rename.add_argument("title", nargs="*", help="the new title; none makes it untitled")
     delete = commands.add_parser("delete", help="permanently delete a meeting: audio, transcript and all")
     delete.add_argument("id")
     commands.add_parser("download-models", help="download the Whisper and speaker models now (the installer runs this)")
@@ -191,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(transcript_text(_client().meeting(args.id)))
             case "search":
                 print("\n".join(hit_line(h) for h in _client().search(args.query)) or "no matches")
+            case "rename":
+                title = _client().rename(args.id, " ".join(args.title))["meeting"]["title"]
+                print(f'"{args.id}" is now called "{title}"' if title else f'"{args.id}" is now untitled')
             case "delete":
                 _client().delete(args.id)
                 print(f'deleted "{args.id}"')

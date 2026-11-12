@@ -112,3 +112,12 @@ def test_delete_meeting(rig: Rig) -> None:
     assert rig.call("delete_meeting", meeting_id="2026-11-11-1430-weekly") == 'Deleted "2026-11-11-1430-weekly".'
     assert rig.call("list_meetings") == "no meetings yet"
     assert rig.call("delete_meeting", meeting_id="nope") == 'no meeting "nope" exists'
+
+
+def test_rename_meeting(rig: Rig) -> None:
+    rig.call("start_recording", title="Weekly sync", mode="mic")
+    rig.call("stop_recording")
+    reply = rig.call("rename_meeting", meeting_id="2026-11-11-1430-weekly-sync", title="Budget review")
+    assert reply == '"2026-11-11-1430-weekly-sync" is now called "Budget review".'
+    assert "Budget review" in rig.call("list_meetings")
+    assert rig.call("rename_meeting", meeting_id="nope", title="x") == 'no meeting "nope" exists'

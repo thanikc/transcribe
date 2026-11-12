@@ -167,3 +167,12 @@ def test_download_models_failure_is_an_error(monkeypatch: pytest.MonkeyPatch, ca
     monkeypatch.setattr(WhisperSpeechToText, "download", offline)
     assert cli.main(["download-models"]) == 1
     assert "model download failed: connection reset" in capsys.readouterr().err
+
+
+def test_rename(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
+    recorder.start("Weekly", "mic")
+    recorder.stop()
+    assert cli.main(["rename", "2026-11-11-1430-weekly", "Budget", "review"]) == 0
+    assert capsys.readouterr().out.strip() == '"2026-11-11-1430-weekly" is now called "Budget review"'
+    assert recorder.store.get("2026-11-11-1430-weekly").title == "Budget review"
+    assert cli.main(["rename", "nope", "x"]) == 1
