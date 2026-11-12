@@ -19,6 +19,13 @@ MODEL_SIZES = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
 # The files faster_whisper.download_model fetches.
 _WHISPER_FILES = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
 
+# How CTranslate2 (Intel MKL), the C++ runtime and NumPy word a failed allocation.
+_OUT_OF_MEMORY = ("failed to allocate memory", "bad allocation", "bad_alloc", "unable to allocate", "out of memory")
+
+
+def _is_out_of_memory(error: Exception) -> bool:
+    return isinstance(error, MemoryError) or any(sign in str(error).lower() for sign in _OUT_OF_MEMORY)
+
 
 class WhisperSpeechToText:
     def __init__(self, model: str) -> None:
@@ -52,6 +59,25 @@ class WhisperSpeechToText:
             return self._model
 
     def transcribe(
+        self, wav: Path, language: str | None, on_progress: Callable[[float], None]
+    ) -> tuple[list[Segment], str]:
+        try:
+            return self._transcribe(wav, language, on_progress)
+        except Exception as e:
+            if not _is_out_of_memory(e):
+                raise
+            with self._lock:
+                self._model = None  # give the memory back, so the next try starts clean
+            hint = (
+                "" if "turbo" in self._name
+                else ", or run the Transcribe installer again and choose large-v3-turbo, which needs about half the memory"
+            )
+            raise RuntimeError(
+                f"not enough free memory for the {self._name} speech model. The recording is safe: "
+                f"close other apps and press Transcribe again{hint}"
+            ) from e
+
+    def _transcribe(
         self, wav: Path, language: str | None, on_progress: Callable[[float], None]
     ) -> tuple[list[Segment], str]:
         started = time.monotonic()

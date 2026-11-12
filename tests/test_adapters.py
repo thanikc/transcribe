@@ -237,3 +237,35 @@ def test_mp3_of_a_killed_recording_keeps_almost_all_its_audio(tmp_path):
     )
     subprocess.run([sys.executable, "-c", code], check=True)
     assert len(_read_mono(path, 16000)) / 16000 > 9.0  # of 10 s
+
+
+def test_whisper_out_of_memory_says_what_to_do_and_drops_the_model(tmp_path) -> None:
+    import pytest
+
+    from transcribe.stt import WhisperSpeechToText
+
+    class Model:
+        def transcribe(self, path, language, vad_filter):
+            raise RuntimeError("mkl_malloc: failed to allocate memory")
+
+    stt = WhisperSpeechToText("large-v3")
+    stt._model = Model()
+    with pytest.raises(RuntimeError, match="not enough free memory for the large-v3 speech model.*large-v3-turbo"):
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None)
+    assert stt._model is None
+
+
+def test_whisper_other_errors_pass_through(tmp_path) -> None:
+    import pytest
+
+    from transcribe.stt import WhisperSpeechToText
+
+    class Model:
+        def transcribe(self, path, language, vad_filter):
+            raise RuntimeError("boom")
+
+    stt = WhisperSpeechToText("large-v3")
+    stt._model = Model()
+    with pytest.raises(RuntimeError, match="^boom$"):
+        stt.transcribe(tmp_path / "mic.mp3", "th", lambda fraction: None)
+    assert stt._model is not None

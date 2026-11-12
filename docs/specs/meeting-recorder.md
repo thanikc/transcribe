@@ -43,7 +43,7 @@ Invariants:
 | Port | Adapter | Responsibility | Failure modes |
 |---|---|---|---|
 | `AudioCapture` | `soundcard` (WASAPI mic and loopback) | Stream each track to its MP3 file until stopped | No device or loopback unavailable → start fails and no meeting is left behind |
-| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message |
+| `SpeechToText` | `faster-whisper` (local; model `large-v3` by default, CPU int8, CUDA used automatically if available) | Track audio + language (`th`/`en`/none = detect) → segments + detected language | Model download or decoding error → meeting `failed` with the message. Out of memory → the model is unloaded and the message says to close other apps and transcribe again, or to switch to `large-v3-turbo` |
 | `SpeakerDiarizer` | sherpa-onnx (ONNX, no PyTorch; segmentation + speaker-embedding models downloaded on first use) | Track audio → speaker turns | Model download or runtime error → fall back to track-level labels and record a warning |
 | `MeetingStore` | Filesystem under the data dir | Persist and read meetings | Corrupt `meeting.json` → that meeting is skipped in lists, not fatal |
 | Clock | `datetime.now` | Meeting start time / id | — |
