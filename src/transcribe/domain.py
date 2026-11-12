@@ -10,13 +10,15 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from typing import Iterable, Literal
 
-Mode = Literal["mic", "mic+system"]
+Mode = Literal["mic", "mic+system", "file"]
 Language = Literal["auto", "th", "en"]
-Track = Literal["mic", "system"]
+Track = Literal["mic", "system", "file"]
 
+# The modes a recording can be started in. "file" is a meeting made from an imported audio file.
 MODES: tuple[str, ...] = ("mic", "mic+system")
+IMPORTED = "file"
 LANGUAGES: tuple[str, ...] = ("auto", "th", "en")
-TRACKS: tuple[str, ...] = ("mic", "system")
+TRACKS: tuple[str, ...] = ("mic", "system", "file")
 # The speech models offered for choosing, with their download size.
 MODELS: dict[str, str] = {"large-v3": "about 3 GB", "large-v3-turbo": "about 1.6 GB"}
 # What to transcribe with when a model does not fit in memory: about half the size.
@@ -68,6 +70,10 @@ class UnknownTrack(DomainError):
 
 class InvalidChoice(DomainError):
     """A mode, language or speech model outside the allowed values."""
+
+
+class UnreadableAudio(DomainError):
+    """An imported file that can't be decoded as audio."""
 
 
 class Status(StrEnum):
@@ -140,6 +146,8 @@ class Meeting:
 
     @property
     def tracks(self) -> list[str]:
+        if self.mode == IMPORTED:
+            return [IMPORTED]
         return ["mic", "system"] if self.mode == "mic+system" else ["mic"]
 
     def to_dict(self) -> dict:
@@ -161,7 +169,7 @@ class Meeting:
         )
 
 
-_TRACK_NAMES = {"mic": "microphone", "system": "system audio"}
+_TRACK_NAMES = {"mic": "microphone", "system": "system audio", "file": "audio file"}
 
 
 @dataclass(frozen=True)
@@ -175,14 +183,15 @@ class TranscriptionStep:
 
 
 def transcription_steps(mode: str) -> list[TranscriptionStep]:
-    """Work done after a recording, in order. In mic+system mode the mic track is always "You"."""
+    """Work done after a recording or import, in order. In mic+system mode the mic track is always "You"."""
     if mode == "mic+system":
         return [
             TranscriptionStep("transcribe", "mic"),
             TranscriptionStep("transcribe", "system"),
             TranscriptionStep("diarize", "system"),
         ]
-    return [TranscriptionStep("transcribe", "mic"), TranscriptionStep("diarize", "mic")]
+    track = IMPORTED if mode == IMPORTED else "mic"
+    return [TranscriptionStep("transcribe", track), TranscriptionStep("diarize", track)]
 
 
 def meeting_id(title: str, started_at: datetime, existing: set[str]) -> str:

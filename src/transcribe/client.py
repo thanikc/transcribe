@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx2 as httpx
@@ -41,6 +42,17 @@ class ServiceClient:
 
     def start(self, title: str, mode: str, language: str = "auto") -> dict:
         return self._post("/api/recordings/start", {"title": title, "mode": mode, "language": language})["meeting"]
+
+    def import_audio(self, path: Path, title: str, language: str = "auto") -> dict:
+        with open(path, "rb") as file:
+            return self._call(
+                "POST",
+                "/api/meetings/import",
+                params={"title": title, "language": language},
+                content=file,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=None,  # converting a long recording takes a while
+            )["meeting"]
 
     def stop(self) -> dict:
         return self._post("/api/recordings/stop")["meeting"]

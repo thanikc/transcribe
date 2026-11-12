@@ -1,4 +1,4 @@
-"""Command line: `transcribe serve|mcp|record|list|show|search|rename|delete|download-models`."""
+"""Command line: `transcribe serve|mcp|record|import|list|show|search|rename|delete|download-models`."""
 
 from __future__ import annotations
 
@@ -65,14 +65,17 @@ def build_recorder(fake: bool = False) -> tuple[Recorder, Path]:
     if fake:
         from transcribe import devfakes
 
+        from transcribe.capture import AudioFileConverter
+
         recorder = Recorder(
             store,
             devfakes.FakeCapture(),
             devfakes.FakeSpeechToText(),
             devfakes.FakeDiarizer(),
+            converter=AudioFileConverter(),
         )
     else:
-        from transcribe.capture import SoundcardCapture
+        from transcribe.capture import AudioFileConverter, SoundcardCapture
         from transcribe.diarize import SherpaDiarizer
         from transcribe.stt import WhisperSpeechToText
 
@@ -82,6 +85,7 @@ def build_recorder(fake: bool = False) -> tuple[Recorder, Path]:
             WhisperSpeechToText(),
             SherpaDiarizer(data_dir / ".models"),
             default_model=_model_name(),
+            converter=AudioFileConverter(),
         )
     return recorder, data_dir
 
@@ -147,6 +151,17 @@ def _record(args: argparse.Namespace) -> int:
     return 0
 
 
+def _import(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.is_file():
+        print(f"no such file: {path}", file=sys.stderr)
+        return 1
+    meeting = _client().import_audio(path, path.stem if args.title is None else args.title, args.language)
+    name = meeting["title"] or meeting["id"]
+    print(f'Imported "{name}" ({meeting["id"]}). Transcription has started; see it with `transcribe show {meeting["id"]}`')
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="transcribe", description="Local meeting recorder and transcriber.")
     parser.add_argument("--version", action="version", version=f"transcribe {installed_version()}")
@@ -159,6 +174,10 @@ def _build_parser() -> argparse.ArgumentParser:
     record.add_argument("--title", default="Meeting")
     record.add_argument("--mode", choices=MODES, default="mic")
     record.add_argument("--language", choices=LANGUAGES, default="auto")
+    imported = commands.add_parser("import", help="transcribe an existing audio file (m4a, mp3, wav…) as a meeting")
+    imported.add_argument("file")
+    imported.add_argument("--title", help="default: the file name without its extension")
+    imported.add_argument("--language", choices=LANGUAGES, default="auto")
     commands.add_parser("list", help="list meetings, newest first")
     show = commands.add_parser("show", help="print a meeting's transcript")
     show.add_argument("id")
@@ -188,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
                 mcp_server.main()
             case "record":
                 return _record(args)
+            case "import":
+                return _import(args)
             case "list":
                 print("\n".join(meeting_line(m) for m in _client().meetings()) or "no meetings yet")
             case "show":

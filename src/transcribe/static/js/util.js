@@ -3,9 +3,9 @@
 export const $ = (id) => document.getElementById(id);
 
 export const STATUS_LABEL = { recording: "recording", transcribing: "transcribing", transcribed: "transcribed", failed: "failed" };
-export const TRACK_LABEL = { mic: "Microphone", system: "System audio" };
+export const TRACK_LABEL = { mic: "Microphone", system: "System audio", file: "Audio file" };
 export const LANG_LABEL = { th: "ไทย", en: "English", auto: "Auto" };
-export const MODE_LABEL = { mic: "In person (mic)", "mic+system": "Online call (mic + system audio)" };
+export const MODE_LABEL = { mic: "In person (mic)", "mic+system": "Online call (mic + system audio)", file: "Imported file" };
 
 export function el(tag, props, ...kids) {
   const e = document.createElement(tag);

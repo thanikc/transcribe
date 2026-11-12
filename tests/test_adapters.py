@@ -420,3 +420,28 @@ def test_capture_reports_the_loudest_sample_of_each_tracks_last_block(monkeypatc
     for g in gate.values():
         g.release(5)
     session.stop()
+
+
+def test_converter_makes_a_16k_mono_mp3_of_any_audio_file(tmp_path):
+    import numpy as np
+
+    from transcribe.capture import AudioFileConverter
+    from transcribe.diarize import _read_mono
+
+    left = (_tone(3, rate=44100) * 32767).astype("int16")
+    stereo = np.column_stack([left, np.zeros_like(left)]).ravel()  # sound on one side only
+    _write_wav(tmp_path / "phone.wav", 44100, 2, stereo)
+    duration = AudioFileConverter().convert(tmp_path / "phone.wav", tmp_path / "file.mp3")
+    assert duration == pytest.approx(3.0, abs=0.01)
+    back = _read_mono(tmp_path / "file.mp3", 16000)
+    assert abs(len(back) - 48000) < 1600
+    # Channels averaged: half the tone's level, not FFmpeg's -3 dB downmix.
+    assert np.sqrt(np.mean(back[4000:-4000] ** 2)) == pytest.approx(0.15 / np.sqrt(2), rel=0.1)
+
+
+def test_converter_refuses_a_file_that_is_not_audio(tmp_path):
+    from transcribe.capture import AudioFileConverter
+
+    (tmp_path / "notes.txt").write_text("not audio", encoding="utf-8")
+    with pytest.raises(Exception):
+        AudioFileConverter().convert(tmp_path / "notes.txt", tmp_path / "file.mp3")

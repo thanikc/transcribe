@@ -12,6 +12,7 @@ from typing import Callable, Protocol
 
 from transcribe.domain import (
     FALLBACK_MODELS,
+    IMPORTED,
     LANGUAGES,
     MODELS,
     MODES,
@@ -26,6 +27,7 @@ from transcribe.domain import (
     Segment,
     SpeakerTurn,
     Status,
+    UnreadableAudio,
     drop_echoes,
     label_track,
     meeting_id,
@@ -91,6 +93,11 @@ class SpeakerDiarizer(Protocol):
         """Track audio -> speaker turns with raw labels."""
 
 
+class AudioConverter(Protocol):
+    def convert(self, source: Path, dest: Path) -> float:
+        """Write any audio file as a track's audio file; returns its length in seconds. Raises if unreadable."""
+
+
 class OneAtATime:
     """Runs jobs on one background thread, in the order they were given.
 
@@ -129,6 +136,7 @@ class Recorder:
         clock: Callable[[], datetime] = datetime.now,
         run_in_background: Callable[[Callable[[], None]], None] | None = None,
         default_model: str = "large-v3",
+        converter: AudioConverter | None = None,
     ) -> None:
         self.store = store
         self.capture = capture
@@ -137,6 +145,7 @@ class Recorder:
         self.clock = clock
         self.run_in_background = run_in_background or OneAtATime()
         self.default_model = default_model
+        self.converter = converter
         self._lock = threading.Lock()
         self._active: tuple[Meeting, CaptureSession] | None = None
         # In memory only: a restart marks running jobs failed, so there is nothing to resume.
@@ -241,6 +250,32 @@ class Recorder:
                 raise CaptureError(str(e)) from e
             self._active = (meeting, session)
             return meeting
+
+    def import_audio(self, source: Path, title: str, language: str = "auto", model: str | None = None) -> Meeting:
+        """Make a meeting of an existing audio file and queue its transcription."""
+        self._check_language(language)
+        model = model or self.default_model
+        self._check_model(model)
+        if self.converter is None:
+            raise DomainError("importing audio files is not available in this service")
+        with self._lock:
+            now = self.clock()
+            title = title.strip()
+            meeting = Meeting(
+                meeting_id(title, now, self.store.ids()), title, IMPORTED, language, now, Status.TRANSCRIBING, model=model
+            )
+            self.store.create(meeting)
+        # Outside the lock: an hour of audio takes a while to convert, and recording must not wait on it.
+        try:
+            duration = self.converter.convert(source, self.store.track_path(meeting.id, IMPORTED))
+        except Exception as e:
+            self.store.delete(meeting.id)
+            raise UnreadableAudio(f"could not read the file as audio: {e}") from e
+        with self._lock:  # keeps a rename made meanwhile
+            meeting = replace(self.store.get(meeting.id), duration=duration)
+            self.store.save(meeting)
+        self.run_in_background(lambda: self._transcribe_job(meeting.id))
+        return meeting
 
     def stop(self) -> Meeting:
         with self._lock:

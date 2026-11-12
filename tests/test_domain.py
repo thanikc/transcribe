@@ -218,6 +218,7 @@ def test_search_finds_thai_substrings():
     [
         ("mic", ["Transcribing microphone", "Detecting speakers"]),
         ("mic+system", ["Transcribing microphone", "Transcribing system audio", "Detecting speakers"]),
+        ("file", ["Transcribing audio file", "Detecting speakers"]),
     ],
 )
 def test_transcription_steps_of_each_mode(mode: str, labels: list[str]) -> None:
@@ -310,3 +311,10 @@ def test_online_call_mic_lines_stay_whole_and_you():
 def test_segments_are_stored_without_their_words():
     line = Segment(0, 1, "a", "Speaker 1", words=_words((0, 1, " a")))
     assert line.to_dict() == {"start": 0, "end": 1, "text": "a", "speaker": "Speaker 1"}
+
+
+def test_an_imported_file_has_one_track_labelled_like_an_in_person_meeting():
+    assert make_meeting(mode="file").tracks == ["file"]
+    turns = [SpeakerTurn(0, 2, "A")]
+    assert label_track([Segment(0, 1, "x")], "file", "file", turns)[0].speaker == "Speaker 1"
+    assert label_track([Segment(0, 1, "x")], "file", "file", None)[0].speaker is None

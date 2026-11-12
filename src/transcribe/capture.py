@@ -1,4 +1,4 @@
-"""Audio capture adapter: soundcard mic and loopback streamed to mono MP3 files."""
+"""Audio capture adapter: soundcard mic and loopback streamed to mono MP3 files; imported files converted to one."""
 
 from __future__ import annotations
 
@@ -55,6 +55,34 @@ class Mp3Writer:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+class AudioFileConverter:
+    """Any audio file FFmpeg reads (m4a, mp3, wav, ogg, the sound of a video…) as a track's 16 kHz mono MP3."""
+
+    def convert(self, source: Path, dest: Path) -> float:
+        import av
+
+        # Planar, channels kept: averaged here, since FFmpeg's downmix adds them at -3 dB and can clip.
+        resampler = av.AudioResampler(format="fltp", rate=SAMPLE_RATE)
+        samples = 0
+        with av.open(str(source)) as container, Mp3Writer(dest) as mp3:
+            if not container.streams.audio:
+                raise ValueError("it has no sound")
+
+            def write(frames) -> None:
+                nonlocal samples
+                for frame in frames:
+                    mono = frame.to_ndarray().mean(axis=0, dtype="float32")
+                    mp3.write(mono)
+                    samples += len(mono)
+
+            for frame in container.decode(audio=0):
+                write(resampler.resample(frame))
+            write(resampler.resample(None))
+        if not samples:
+            raise ValueError("it has no sound")
+        return samples / SAMPLE_RATE
 
 
 class _Session:

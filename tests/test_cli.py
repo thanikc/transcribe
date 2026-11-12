@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from fakes import FakeCapture, FakeDiarizer, FakeSpeechToText
+from fakes import FakeCapture, FakeConverter, FakeDiarizer, FakeSpeechToText
 from transcribe import cli
 from transcribe.client import ServiceClient, httpx, meeting_line, transcript_text
 from transcribe.domain import Segment, SpeakerTurn
@@ -30,6 +30,7 @@ def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
         FakeDiarizer([SpeakerTurn(0, 2, "A"), SpeakerTurn(2.5, 4, "B")]),
         clock=lambda: datetime(2026, 11, 11, 14, 30),
         run_in_background=lambda job: job(),
+        converter=FakeConverter(),
     )
     http = TestClient(create_app(recorder, allowed_hosts=["testserver"]))
     monkeypatch.setattr(cli, "_client", lambda: ServiceClient(http))
@@ -183,3 +184,18 @@ def test_show_includes_notes_even_before_the_transcript() -> None:
     assert transcript_text({"meeting": meeting, "transcript": None, "notes": "Agenda: budget"}) == (
         'the transcript of "m" is not ready yet (status: transcribing)\n\nNotes:\nAgenda: budget'
     )
+
+
+
+@pytest.mark.filterwarnings("ignore:You should not use the 'timeout' argument with the TestClient")
+def test_import(recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    audio = tmp_path / "Team standup.m4a"
+    audio.write_bytes(b"ID3 audio")
+    assert cli.main(["import", str(audio), "--language", "th"]) == 0
+    assert capsys.readouterr().out.strip() == (
+        'Imported "Team standup" (2026-11-11-1430-team-standup). Transcription has started; '
+        "see it with `transcribe show 2026-11-11-1430-team-standup`"
+    )
+    assert recorder.store.get("2026-11-11-1430-team-standup").language == "th"
+    assert cli.main(["import", str(tmp_path / "missing.m4a")]) == 1
+    assert "no such file" in capsys.readouterr().err

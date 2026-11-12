@@ -24,6 +24,16 @@ class FakeCapture:
         return FakeSession()
 
 
+class FakeConverter:
+    """Reads any file as 42 seconds of audio, except one starting with "not audio"."""
+
+    def convert(self, source: Path, dest: Path) -> float:
+        if source.read_bytes().startswith(b"not audio"):
+            raise ValueError("Invalid data found when processing input")
+        dest.write_bytes(b"mp3")
+        return 42.0
+
+
 class FakeSpeechToText:
     def __init__(self, segments: list[Segment] | None = None, detected: str = "en") -> None:
         self.segments = segments or []

@@ -12,7 +12,7 @@ import httpx2 as httpx
 import pytest
 from starlette.testclient import TestClient
 
-from fakes import FakeCapture, FakeDiarizer, FakeSpeechToText
+from fakes import FakeCapture, FakeConverter, FakeDiarizer, FakeSpeechToText
 from transcribe.domain import Segment, SpeakerTurn
 from transcribe.recorder import Recorder
 from transcribe.store import MeetingStore
@@ -33,6 +33,7 @@ class Rig:
             FakeDiarizer(TURNS),
             clock=lambda: datetime(2026, 11, 11, 14, 30),
             run_in_background=lambda job: job(),
+            converter=FakeConverter(),
         )
         self.client = TestClient(create_app(self.recorder, allowed_hosts=["testserver"]))
 
@@ -529,3 +530,38 @@ def test_meeting_notes(rig: Rig) -> None:
     assert response.status_code == 200 and response.json()["notes"] == "- ส่งงบ\n"
     assert rig.client.get(f"/api/meetings/{meeting_id}").json()["notes"] == "- ส่งงบ\n"
     assert rig.client.post("/api/meetings/nope/notes", json={"notes": "x"}).status_code == 404
+
+
+
+def _import(rig: Rig, body: bytes = b"ID3 audio", **headers: str):
+    return rig.client.post(
+        "/api/meetings/import",
+        params={"title": "Standup", "language": "th"},
+        content=body,
+        headers={"Content-Type": "application/octet-stream", **headers},
+    )
+
+
+def test_import_audio_file(rig: Rig) -> None:
+    response = _import(rig)
+    assert response.status_code == 201
+    meeting = response.json()["meeting"]
+    assert (meeting["title"], meeting["mode"], meeting["tracks"], meeting["language"]) == ("Standup", "file", ["file"], "th")
+    assert rig.client.get(f"/api/meetings/{meeting['id']}").json()["meeting"]["status"] == "transcribed"
+    assert rig.client.get(f"/api/meetings/{meeting['id']}/audio/file").content == b"mp3"
+
+
+def test_import_refuses_what_is_not_audio(rig: Rig) -> None:
+    response = _import(rig, b"not audio at all")
+    assert response.status_code == 400 and "could not read the file as audio" in response.json()["error"]
+    assert rig.client.get("/api/meetings").json()["meetings"] == []
+
+
+def test_import_refuses_other_websites_and_forms(rig: Rig) -> None:
+    assert _import(rig, Origin="https://evil.example").status_code == 403
+    form = rig.client.post("/api/meetings/import", content=b"x", headers={"Content-Type": "multipart/form-data; boundary=x"})
+    assert form.status_code == 415
+    # Raw bytes are only accepted where a file is expected.
+    raw = rig.client.post("/api/recordings/start", content=b"{}", headers={"Content-Type": "application/octet-stream"})
+    assert raw.status_code == 415
+    assert rig.client.get("/api/meetings").json()["meetings"] == []

@@ -121,6 +121,13 @@ footer button { font-size: .85rem; padding: 3px 10px; }
       <p id="status" role="status" aria-live="polite">Not recording</p>
       <div id="meters" hidden></div>
       <div id="rec-error" class="err" role="alert"></div>
+      <label for="import-file">Import audio file</label>
+      <div class="row">
+        <div><input type="file" id="import-file" accept="audio/*,video/*"></div>
+        <button type="button" id="import" disabled>Import</button>
+      </div>
+      <p class="muted" style="margin:4px 0 0;font-size:.85rem">Uses the title, language and speech model above. Without a title, the file name is used.</p>
+      <div id="import-error" class="err" role="alert"></div>
     </section>
 
     <section aria-labelledby="list-h" style="margin-top:16px">

@@ -11,6 +11,7 @@ from typing import Callable
 
 import pytest
 
+from fakes import FakeConverter
 from transcribe.domain import (
     InvalidChoice,
     InvalidTransition,
@@ -24,6 +25,7 @@ from transcribe.domain import (
     Status,
     TranscriptNotReady,
     UnknownSpeaker,
+    UnreadableAudio,
     render_transcript,
 )
 from transcribe.recorder import CaptureError, OneAtATime, OutOfMemory, Recorder
@@ -130,6 +132,7 @@ class Rig:
             self.diarizer,
             clock=self.clock,
             run_in_background=self.jobs.append,
+            converter=FakeConverter(),
         )
 
     def run_jobs(self) -> None:
@@ -719,3 +722,47 @@ def test_vocabulary_is_given_to_whisper(rig: Rig) -> None:
     (rig.store.data_dir / "vocabulary.txt").write_text("Somchai\nKubernetes\n", encoding="utf-8")
     rig.transcribed(rig.record("Second"))
     assert rig.whisper.vocabularies == [[], ["Somchai", "Kubernetes"]]
+
+
+
+def _audio_file(tmp_path: Path, content: bytes = b"ID3 phone recording") -> Path:
+    path = tmp_path / "standup.m4a"
+    path.write_bytes(content)
+    return path
+
+
+def test_imported_file_is_transcribed_and_diarized_like_an_in_person_meeting(rig: Rig, tmp_path: Path) -> None:
+    rig.whisper.by_track = {"file": [Segment(0, 1, "Morning"), Segment(3, 4, "Hi")]}
+    rig.diarizer.turns = {"file": [SpeakerTurn(0, 2, "A"), SpeakerTurn(2.5, 4, "B")]}
+    meeting = rig.recorder.import_audio(_audio_file(tmp_path), "Standup", "th")
+    assert (meeting.id, meeting.mode, meeting.tracks) == ("2026-11-11-1430-standup", "file", ["file"])
+    assert (meeting.status, meeting.duration, meeting.language) == (Status.TRANSCRIBING, 42.0, "th")
+    assert rig.store.track_path(meeting.id, "file").read_bytes() == b"mp3"
+    done = rig.transcribed(meeting)
+    assert done.status == Status.TRANSCRIBED and rig.diarizer.calls == ["file"]
+    assert render_transcript(rig.store.load_transcript(meeting.id), {}) == "[00:00] Speaker 1: Morning\n[00:03] Speaker 2: Hi"
+
+
+def test_a_file_that_is_not_audio_leaves_no_meeting(rig: Rig, tmp_path: Path) -> None:
+    with pytest.raises(UnreadableAudio, match="could not read the file as audio"):
+        rig.recorder.import_audio(_audio_file(tmp_path, b"not audio"), "Notes", "auto")
+    assert rig.store.list() == [] and rig.jobs == []
+
+
+def test_import_validates_its_choices(rig: Rig, tmp_path: Path) -> None:
+    with pytest.raises(InvalidChoice):
+        rig.recorder.import_audio(_audio_file(tmp_path), "x", "fr")
+    with pytest.raises(InvalidChoice):
+        rig.recorder.import_audio(_audio_file(tmp_path), "x", "auto", model="tiny")
+    assert rig.store.list() == []
+
+
+def test_import_while_recording_is_its_own_meeting(rig: Rig, tmp_path: Path) -> None:
+    live = rig.recorder.start("Live", "mic")
+    imported = rig.recorder.import_audio(_audio_file(tmp_path), "Standup", "auto")
+    assert imported.id != live.id and rig.recorder.status()["meeting_id"] == live.id
+
+
+def test_an_imported_file_cannot_be_started_as_a_recording(rig: Rig) -> None:
+    with pytest.raises(InvalidChoice):
+        rig.recorder.start("x", "file")
