@@ -194,6 +194,18 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         # Looking in the model cache imports the speech libraries the first time, which takes a moment.
         return JSONResponse({"models": recorder.models()})
 
+    def sources(request: Request) -> Response:
+        return JSONResponse({"sources": recorder.sources()})
+
+    async def choose_source(request: Request) -> Response:
+        data = await _body(request, required=("track",), optional=("device",))
+
+        def work() -> dict:
+            recorder.choose_source(data["track"], data.get("device"))
+            return {"sources": recorder.sources()}
+
+        return JSONResponse(await run_in_threadpool(work))
+
     async def speakers(request: Request) -> Response:
         data = await _body(request, required=("speaker", "name"))
         meeting_id = request.path_params["id"]
@@ -281,6 +293,8 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None, updat
         Route("/api/meetings/{id}/title", title, methods=["POST"]),
         Route("/api/meetings/{id}/notes", notes, methods=["POST"]),
         Route("/api/models", models),
+        Route("/api/sources", sources),
+        Route("/api/sources", choose_source, methods=["POST"]),
         Route("/api/search", search),
         Route("/api/version", version),
         Route("/api/update/install", install_update, methods=["POST"]),
