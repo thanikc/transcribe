@@ -1,4 +1,9 @@
-"""HTTP API and static page of the recorder service."""
+"""HTTP API and static page of the recorder service.
+
+Handlers that read the disk or wait for the recorder's lock are plain functions, which Starlette runs in
+its thread pool, or hand that part to the pool after reading the request body. The event loop stays free
+for the status polls.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from transcribe.domain import (
     TranscriptNotReady,
     UnknownTrack,
     render_transcript,
+    timestamp,
 )
 from transcribe.recorder import CaptureError, Recorder
 
@@ -56,11 +62,6 @@ def _error(message: str, status: int) -> JSONResponse:
 async def _domain_error(request: Request, exc: Exception) -> Response:
     status = next((code for kind, code in _STATUS_CODES if isinstance(exc, kind)), 400)
     return _error(str(exc), status)
-
-
-def _timestamp(seconds: float) -> str:
-    minutes, secs = divmod(int(seconds), 60)
-    return f"[{minutes:02d}:{secs:02d}]"
 
 
 async def _body(request: Request, required: tuple[str, ...] = (), optional: tuple[str, ...] = ()) -> dict:
@@ -109,26 +110,27 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
 
     async def start(request: Request) -> Response:
         data = await _body(request, required=("title", "mode"), optional=("language", "model"))
-        # Opening audio devices can take seconds; keep the event loop free for status polling.
-        meeting = await run_in_threadpool(
-            recorder.start, data["title"], data["mode"], data.get("language") or "auto", data.get("model")
-        )
-        return JSONResponse({"meeting": _meeting_json(meeting)}, status_code=201)
 
-    async def stop(request: Request) -> Response:
-        return JSONResponse({"meeting": _meeting_json(await run_in_threadpool(recorder.stop))})
+        def work() -> dict:  # opening audio devices can take seconds
+            meeting = recorder.start(data["title"], data["mode"], data.get("language") or "auto", data.get("model"))
+            return {"meeting": _meeting_json(meeting)}
 
-    async def meetings(request: Request) -> Response:
+        return JSONResponse(await run_in_threadpool(work), status_code=201)
+
+    def stop(request: Request) -> Response:
+        return JSONResponse({"meeting": _meeting_json(recorder.stop())})
+
+    def meetings(request: Request) -> Response:
         return JSONResponse({"meetings": [_meeting_json(m) for m in recorder.store.list()]})
 
-    async def meeting(request: Request) -> Response:
+    def meeting(request: Request) -> Response:
         return JSONResponse(detail(request.path_params["id"]))
 
-    async def delete(request: Request) -> Response:
+    def delete(request: Request) -> Response:
         recorder.delete(request.path_params["id"])
         return JSONResponse({"deleted": request.path_params["id"]})
 
-    async def audio(request: Request) -> Response:
+    def audio(request: Request) -> Response:
         # track_path validates both the meeting id and the track name.
         path = recorder.store.track_path(request.path_params["id"], request.path_params["track"])
         if not path.is_file():
@@ -137,29 +139,37 @@ def create_app(recorder: Recorder, allowed_hosts: list[str] | None = None) -> St
 
     async def transcribe(request: Request) -> Response:
         data = await _body(request, optional=("language", "model"))
-        updated = recorder.transcribe(request.path_params["id"], data.get("language"), data.get("model"))
-        return JSONResponse({"meeting": _meeting_json(updated)})
+        meeting_id = request.path_params["id"]
 
-    async def models(request: Request) -> Response:
+        def work() -> dict:
+            return {"meeting": _meeting_json(recorder.transcribe(meeting_id, data.get("language"), data.get("model")))}
+
+        return JSONResponse(await run_in_threadpool(work))
+
+    def models(request: Request) -> Response:
         # Looking in the model cache imports the speech libraries the first time, which takes a moment.
-        return JSONResponse({"models": await run_in_threadpool(recorder.models)})
+        return JSONResponse({"models": recorder.models()})
 
     async def speakers(request: Request) -> Response:
         data = await _body(request, required=("speaker", "name"))
-        recorder.rename_speaker(request.path_params["id"], data["speaker"], data["name"])
-        return JSONResponse(detail(request.path_params["id"]))
+        meeting_id = request.path_params["id"]
 
-    async def search(request: Request) -> Response:
+        def work() -> dict:
+            recorder.rename_speaker(meeting_id, data["speaker"], data["name"])
+            return detail(meeting_id)
+
+        return JSONResponse(await run_in_threadpool(work))
+
+    def search(request: Request) -> Response:
         query = request.query_params.get("q", "").strip()
         if not query:
             return _error('query parameter "q" is required', 400)
-        titles = {m.id: m.title for m in recorder.store.list()}
         hits = [
             {
                 "meeting_id": h.meeting_id,
-                "title": titles.get(h.meeting_id, ""),
+                "title": h.title,
                 "start": h.start,
-                "timestamp": _timestamp(h.start),
+                "timestamp": timestamp(h.start),
                 "speaker": h.speaker,
                 "text": h.text,
             }

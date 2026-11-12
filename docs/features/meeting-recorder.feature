@@ -117,6 +117,13 @@ Feature: Record, transcribe and read local meetings
     And the meeting shows the warning "not enough free memory for large-v3, so this was transcribed with large-v3-turbo"
     And the meeting shows the speech model "large-v3-turbo"
 
+  Scenario: Meetings are transcribed one at a time
+    Given a meeting is being transcribed
+    When I stop the recording of a second meeting
+    Then the second meeting's status is "transcribing" with no step yet
+    And its transcription starts when the first one has finished
+    And both meetings end up "transcribed"
+
   Scenario: Not enough memory for any model
     Given neither "large-v3" nor "large-v3-turbo" fits in free memory
     When the meeting is transcribed

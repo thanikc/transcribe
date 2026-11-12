@@ -102,6 +102,7 @@ class SpeakerTurn:
 @dataclass(frozen=True)
 class SearchHit:
     meeting_id: str
+    title: str
     start: float
     speaker: str | None
     text: str
@@ -231,7 +232,7 @@ def merge_transcript(tracks: dict[str, list[Segment]]) -> list[Segment]:
     return sorted((s for segs in tracks.values() for s in segs), key=lambda s: s.start)
 
 
-def _timestamp(seconds: float) -> str:
+def timestamp(seconds: float) -> str:
     minutes, secs = divmod(int(seconds), 60)
     return f"[{minutes:02d}:{secs:02d}]"
 
@@ -240,7 +241,7 @@ def render_transcript(segments: list[Segment], speaker_names: dict[str, str]) ->
     lines = []
     for s in segments:
         speaker = speaker_names.get(s.speaker, s.speaker) if s.speaker else None
-        lines.append(f"{_timestamp(s.start)} {speaker}: {s.text}" if speaker else f"{_timestamp(s.start)} {s.text}")
+        lines.append(f"{timestamp(s.start)} {speaker}: {s.text}" if speaker else f"{timestamp(s.start)} {s.text}")
     return "\n".join(lines)
 
 
@@ -251,6 +252,7 @@ def search_transcripts(
     return [
         SearchHit(
             meeting.id,
+            meeting.title,
             s.start,
             meeting.speaker_names.get(s.speaker, s.speaker) if s.speaker else None,
             s.text,

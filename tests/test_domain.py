@@ -205,6 +205,7 @@ def test_search_is_case_insensitive_with_hits_carrying_context():
         ("a", 65.0, "You", "Budget"),
         ("b", 1.0, "Nok", "budget review"),
     ]
+    assert {h.title for h in hits} == {make_meeting().title}
 
 
 def test_search_finds_thai_substrings():

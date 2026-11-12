@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,7 +26,7 @@ from transcribe.domain import (
     UnknownSpeaker,
     render_transcript,
 )
-from transcribe.recorder import CaptureError, OutOfMemory, Recorder
+from transcribe.recorder import CaptureError, OneAtATime, OutOfMemory, Recorder
 from transcribe.store import MeetingStore
 
 T0 = datetime(2026, 11, 11, 14, 30)
@@ -573,3 +575,72 @@ def test_failing_fallback_still_says_memory_ran_out(rig: Rig) -> None:
         "not enough free memory for the large-v3 speech model, "
         "and transcribing with large-v3-turbo instead failed: connection reset"
     )
+
+
+# --- one transcription at a time ---
+
+
+def test_background_jobs_run_one_at_a_time_in_the_order_given() -> None:
+    worker = OneAtATime()
+    running, most_at_once, order, finished = 0, 0, [], threading.Event()
+
+    def job(n: int) -> Callable[[], None]:
+        def run() -> None:
+            nonlocal running, most_at_once
+            running += 1
+            most_at_once = max(most_at_once, running)
+            time.sleep(0.01)
+            order.append(n)
+            running -= 1
+            if n == 4:
+                finished.set()
+
+        return run
+
+    for n in range(5):
+        worker(job(n))
+    assert finished.wait(timeout=5)
+    assert order == [0, 1, 2, 3, 4]
+    assert most_at_once == 1
+
+
+def test_a_background_job_that_raises_does_not_stop_the_next() -> None:
+    worker = OneAtATime()
+    finished = threading.Event()
+
+    def broken() -> None:
+        raise RuntimeError("boom")
+
+    worker(broken)
+    worker(finished.set)
+    assert finished.wait(timeout=5)
+
+
+def test_two_meetings_are_transcribed_one_after_the_other_by_default(tmp_path: Path) -> None:
+    whisper = FakeSTT({"mic": [Segment(0, 1, "hello")]})
+    busy, overlapped, go_on = threading.Lock(), [], threading.Event()
+
+    def slow(on_progress: Callable[[float], None]) -> None:
+        overlapped.append(not busy.acquire(blocking=False))
+        go_on.wait(timeout=5)
+        time.sleep(0.02)
+        if not overlapped[-1]:
+            busy.release()
+
+    whisper.during = slow
+    clock = FakeClock()
+    recorder = Recorder(MeetingStore(tmp_path), FakeCapture(), whisper, FakeDiarizer(), clock=clock)
+    ids = []
+    for title in ("First", "Second"):
+        recorder.start(title, "mic")
+        ids.append(recorder.stop().id)
+    # The second meeting waits its turn: transcribing, with no step to show yet.
+    assert recorder.store.get(ids[1]).status == Status.TRANSCRIBING
+    assert recorder.progress(ids[1]) is None
+    go_on.set()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and any(recorder.store.get(i).status != Status.TRANSCRIBED for i in ids):
+        time.sleep(0.01)
+    assert [recorder.store.get(i).status for i in ids] == [Status.TRANSCRIBED, Status.TRANSCRIBED]
+    assert whisper.calls == [("mic", None), ("mic", None)]
+    assert overlapped == [False, False]
