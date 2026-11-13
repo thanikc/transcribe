@@ -8,6 +8,7 @@ on:
       - "installer/**"
       - "frontend/**"
       - "src/**"
+      - "tests/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/windows-installer.yml"
