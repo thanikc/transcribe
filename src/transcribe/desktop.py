@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -25,6 +26,19 @@ def tray_state(status: dict) -> tuple[bool, str]:
     if len(tooltip) > _TOOLTIP_MAX:
         tooltip = tooltip[: _TOOLTIP_MAX - 1] + "…"
     return True, tooltip
+
+
+_APP_BROWSERS = (Path("Microsoft/Edge/Application/msedge.exe"), Path("Google/Chrome/Application/chrome.exe"))
+_PROGRAM_ROOTS = ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")
+
+
+def app_window_command(url: str, env: Mapping[str, str]) -> list[str] | None:
+    """The command that opens `url` as an Edge (else Chrome) app window, or None if neither is installed."""
+    for browser in _APP_BROWSERS:
+        for root in _PROGRAM_ROOTS:
+            if env.get(root) and (exe := Path(env[root]) / browser).is_file():
+                return [str(exe), f"--app={url}"]
+    return None
 
 
 def icon_image(recording: bool):

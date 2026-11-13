@@ -62,6 +62,17 @@ Feature: Install and run the recorder from a Windows installer and a tray icon
     Then the recorder page opens
     And no second tray icon appears
 
+  Scenario: The page opens in its own app window
+    Given Microsoft Edge or Google Chrome is installed
+    When the tray opens the recorder page
+    Then it opens in an app window, without tabs or an address bar
+    And Edge is used when both are installed
+
+  Scenario: No app-capable browser
+    Given neither Edge nor Chrome is installed, or it fails to launch
+    When the tray opens the recorder page
+    Then it opens in the default browser
+
   Scenario: Port taken by another program
     Given another program is listening on port 8765
     When I launch Transcribe

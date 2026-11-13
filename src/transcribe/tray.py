@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from transcribe import cli
 from transcribe.client import ServiceClient, httpx
-from transcribe.desktop import claude_config_files, connect_claude, icon_image, port_owner, tray_state
+from transcribe.desktop import app_window_command, claude_config_files, connect_claude, icon_image, port_owner, tray_state
 from transcribe.updates import UpdateError, UpdateService
 
 log = logging.getLogger(__name__)
@@ -87,6 +88,18 @@ class WinregLoginStartup:
                 pass
 
 
+def _open_page(url: str) -> None:
+    """The recorder page in its own app window, or the default browser without Edge or Chrome."""
+    command = app_window_command(url, os.environ)
+    if command:
+        try:
+            subprocess.Popen(command)
+            return
+        except OSError:
+            log.exception("couldn't open the app window, using the default browser")
+    webbrowser.open(url)
+
+
 def _start_service(recorder, port: int, updates: UpdateService):
     """The recorder service on a background thread. Returns the server, or None if it couldn't listen."""
     import uvicorn
@@ -114,7 +127,7 @@ def main() -> None:
     if owner == "recorder":
         log.info("recorder already running on port %d", port)
         if not background:
-            webbrowser.open(url)
+            _open_page(url)
         return
     port_busy = f"Port {port} is in use by another program, so Transcribe can't start.\nClose that program and try again."
     if owner == "other":
@@ -144,7 +157,7 @@ def main() -> None:
     stop_checking: list[threading.Event] = []
 
     def open_page(icon=None, item=None) -> None:
-        webbrowser.open(url)
+        _open_page(url)
 
     def toggle_startup(icon, item) -> None:
         try:
