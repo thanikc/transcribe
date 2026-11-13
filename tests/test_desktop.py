@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from fakes import FakeCapture, FakeDiarizer, FakeSpeechToText
 from transcribe.client import ServiceClient, httpx
 from transcribe.desktop import (
+    app_window_command,
     claude_config_files,
     connect_claude,
     icon_image,
@@ -330,6 +331,75 @@ def test_second_launch_only_opens_the_page(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(cli, "build_recorder", lambda: pytest.fail("started a second service"))
     opened: list[str] = []
     monkeypatch.setattr(tray.webbrowser, "open", opened.append)
+    tray.main()
+    assert opened == ["http://127.0.0.1:8765"]
+
+
+# --- app window --------------------------------------------------------------
+
+EDGE = Path("Microsoft/Edge/Application/msedge.exe")
+CHROME = Path("Google/Chrome/Application/chrome.exe")
+
+
+def _install(root: Path, exe: Path) -> Path:
+    (root / exe).parent.mkdir(parents=True, exist_ok=True)
+    (root / exe).touch()
+    return root / exe
+
+
+def test_app_window_prefers_edge(tmp_path: Path) -> None:
+    _install(tmp_path / "x86", CHROME)
+    edge = _install(tmp_path / "local", EDGE)
+    env = {"ProgramFiles(x86)": str(tmp_path / "x86"), "LOCALAPPDATA": str(tmp_path / "local")}
+    assert app_window_command("http://127.0.0.1:8765", env) == [str(edge), "--app=http://127.0.0.1:8765"]
+
+
+def test_app_window_uses_chrome_without_edge(tmp_path: Path) -> None:
+    chrome = _install(tmp_path, CHROME)
+    assert app_window_command("http://x", {"ProgramFiles": str(tmp_path)}) == [str(chrome), "--app=http://x"]
+
+
+def test_no_app_window_without_edge_or_chrome(tmp_path: Path) -> None:
+    assert app_window_command("http://x", {"ProgramFiles": str(tmp_path)}) is None
+    assert app_window_command("http://x", {}) is None
+
+
+def _launch_tray_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
+    import sys
+
+    from transcribe import tray
+
+    monkeypatch.delenv("TRANSCRIBE_PORT", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["transcribe-tray"])
+    monkeypatch.setattr(tray, "port_owner", lambda client: "recorder")
+    opened: list[str] = []
+    monkeypatch.setattr(tray.webbrowser, "open", opened.append)
+    return opened
+
+
+def test_tray_opens_the_page_in_an_app_window(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from transcribe import tray
+
+    edge = _install(tmp_path, EDGE)
+    opened = _launch_tray_again(monkeypatch, tmp_path)
+    launched: list[list[str]] = []
+    monkeypatch.setattr(tray.subprocess, "Popen", launched.append)
+    tray.main()
+    assert launched == [[str(edge), "--app=http://127.0.0.1:8765"]]
+    assert opened == []
+
+
+def test_tray_falls_back_to_the_browser_when_the_app_window_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from transcribe import tray
+
+    _install(tmp_path, EDGE)
+    opened = _launch_tray_again(monkeypatch, tmp_path)
+
+    def broken(command):
+        raise OSError("not a valid application")
+
+    monkeypatch.setattr(tray.subprocess, "Popen", broken)
     tray.main()
     assert opened == ["http://127.0.0.1:8765"]
 
