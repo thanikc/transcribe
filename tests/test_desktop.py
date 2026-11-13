@@ -204,6 +204,12 @@ def test_start_at_login_toggles_the_run_value(monkeypatch: pytest.MonkeyPatch) -
     assert not startup.enabled()
 
 
+def _no_installed_browsers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The machine's real Edge or Chrome would otherwise open an app window during the test.
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "no-browsers"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "no-browsers"))
+
+
 def _free_port() -> int:
     import socket
 
@@ -223,6 +229,7 @@ def test_tray_runs_the_service_shows_recording_and_quits(tmp_path: Path, monkeyp
     recorder = Recorder(MeetingStore(tmp_path / "Meetings"), FakeCapture(), FakeSpeechToText([]), FakeDiarizer([]))
     monkeypatch.setenv("TRANSCRIBE_PORT", str(port))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    _no_installed_browsers(monkeypatch, tmp_path)
     monkeypatch.setattr(sys, "argv", ["transcribe-tray"])
     monkeypatch.setattr(cli, "build_recorder", lambda: (recorder, tmp_path / "Meetings"))
     opened: list[str] = []
@@ -326,6 +333,7 @@ def test_second_launch_only_opens_the_page(monkeypatch: pytest.MonkeyPatch, tmp_
 
     monkeypatch.delenv("TRANSCRIBE_PORT", raising=False)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    _no_installed_browsers(monkeypatch, tmp_path)
     monkeypatch.setattr(sys, "argv", ["transcribe-tray"])
     monkeypatch.setattr(tray, "port_owner", lambda client: "recorder")
     monkeypatch.setattr(cli, "build_recorder", lambda: pytest.fail("started a second service"))
@@ -370,7 +378,8 @@ def _launch_tray_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[
     from transcribe import tray
 
     monkeypatch.delenv("TRANSCRIBE_PORT", raising=False)
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    for root in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+        monkeypatch.setenv(root, str(tmp_path))
     monkeypatch.setattr(sys, "argv", ["transcribe-tray"])
     monkeypatch.setattr(tray, "port_owner", lambda client: "recorder")
     opened: list[str] = []
